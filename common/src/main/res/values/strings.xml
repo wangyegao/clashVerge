@@ -4,4 +4,6 @@
     <string name="receive_broadcasts_of_clash">Receive broadcasts of clash services</string>
     <string name="application_name_alpha">Clash Verge</string>
     <string name="launch_name_alpha">Clash Verge</string>
+    <string name="application_name_meta">Clash Meta</string>
+    <string name="launch_name_meta">Clash Meta</string>
 </resources>

