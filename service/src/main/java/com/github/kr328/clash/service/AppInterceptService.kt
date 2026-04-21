@@ -1,5 +1,9 @@
 package com.github.kr328.clash.service
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
@@ -8,6 +12,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
+import androidx.core.app.NotificationCompat
 import com.github.kr328.clash.common.log.Log
 import com.github.kr328.clash.common.constants.AppInterceptConstants
 import com.github.kr328.clash.service.model.AppInterceptConfig
@@ -24,6 +29,7 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
     private val configChannel = Channel<AppInterceptConfig>(Channel.CONFLATED)
     private var lastForegroundPackage: String? = null
     private var hasUsageStatsPermission = false
+    private var permissionNotified = false
 
     // 已验证通过的APP（本次VPN连接期间有效）
     private val verifiedPackages = mutableSetOf<String>()
@@ -34,6 +40,11 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
         super.onCreate()
         hasUsageStatsPermission = checkUsageStatsPermission()
         Log.i("AppInterceptService created, usageStatsPermission: $hasUsageStatsPermission")
+
+        // 创建前台通知
+        createNotificationChannel()
+        startForeground(NOTIFICATION_ID, createNotification())
+
         launch {
             runMonitor()
         }
@@ -52,6 +63,9 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
                     config = it
                     configChannel.trySend(it)
                     Log.d("AppInterceptService config updated: ${it.interceptPackages.size} packages, enabled: ${it.enabled}")
+
+                    // 更新通知
+                    updateNotification()
                 }
             }
             AppInterceptConstants.ACTION_CLEAR_VERIFIED -> {
@@ -85,6 +99,57 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
         return mode == android.app.AppOpsManager.MODE_ALLOWED
     }
 
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "APP拦截监控",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "APP拦截监控服务运行中"
+            }
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(channel)
+        }
+    }
+
+    private fun createNotification(): Notification {
+        val contentText = if (!hasUsageStatsPermission) {
+            "请授予\"查看使用情况\"权限以启用拦截功能"
+        } else if (config.enabled) {
+            "正在监控 ${config.interceptPackages.size} 个风险应用"
+        } else {
+            "拦截功能未启用"
+        }
+
+        val pendingIntent = if (!hasUsageStatsPermission) {
+            // 打开使用统计权限设置
+            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            PendingIntent.getActivity(
+                this, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } else {
+            null
+        }
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("APP拦截监控")
+            .setContentText(contentText)
+            .setSmallIcon(android.R.drawable.ic_menu_info_details)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .setContentIntent(pendingIntent)
+            .build()
+    }
+
+    private fun updateNotification() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.notify(NOTIFICATION_ID, createNotification())
+    }
+
     private suspend fun runMonitor() {
         val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
 
@@ -93,9 +158,18 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
             if (!hasUsageStatsPermission) {
                 hasUsageStatsPermission = checkUsageStatsPermission()
                 if (!hasUsageStatsPermission) {
-                    Log.w("AppInterceptService: No usage stats permission, skip monitoring")
+                    if (!permissionNotified) {
+                        Log.w("AppInterceptService: No usage stats permission, showing notification")
+                        updateNotification()
+                        permissionNotified = true
+                    }
                     delay(5000) // 5秒后再检查
                     continue
+                } else {
+                    // 权限已授予，更新通知
+                    permissionNotified = false
+                    updateNotification()
+                    Log.i("AppInterceptService: Usage stats permission granted")
                 }
             }
 
@@ -168,6 +242,9 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
     }
 
     companion object {
+        private const val CHANNEL_ID = "app_intercept_service"
+        private const val NOTIFICATION_ID = 10001
+
         /**
          * 创建更新配置的Intent
          */
