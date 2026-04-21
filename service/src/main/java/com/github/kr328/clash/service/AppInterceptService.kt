@@ -154,10 +154,14 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
 
     private fun notifyInterceptRequired(packageName: String) {
         // 发送广播通知UI层显示验证对话框
+        // 使用显式 Intent 确保广播能跨进程送达
         val intent = Intent(AppInterceptConstants.ACTION_APP_INTERCEPT_REQUIRED).apply {
             putExtra(AppInterceptConstants.EXTRA_PACKAGE_NAME, packageName)
             putExtra(AppInterceptConstants.EXTRA_VERIFY_HINT, config.verifyHint)
-            setPackage(this@AppInterceptService.packageName) // 设置为本应用包名
+            setPackage(this@AppInterceptService.packageName)
+            addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+            // 设置接收器的类名，使其成为显式广播
+            setClassName(this@AppInterceptService.packageName, "com.github.kr328.clash.AppInterceptReceiver")
         }
         sendBroadcast(intent)
         Log.i("AppInterceptService: Broadcast sent for $packageName")
