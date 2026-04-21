@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
 import com.github.kr328.clash.common.log.Log
 import com.github.kr328.clash.common.constants.AppInterceptConstants
 import com.github.kr328.clash.service.model.AppInterceptConfig
@@ -22,6 +23,7 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
     private var config: AppInterceptConfig = AppInterceptConfig()
     private val configChannel = Channel<AppInterceptConfig>(Channel.CONFLATED)
     private var lastForegroundPackage: String? = null
+    private var hasUsageStatsPermission = false
 
     // 已验证通过的APP（本次VPN连接期间有效）
     private val verifiedPackages = mutableSetOf<String>()
@@ -30,7 +32,8 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
 
     override fun onCreate() {
         super.onCreate()
-        Log.i("AppInterceptService created")
+        hasUsageStatsPermission = checkUsageStatsPermission()
+        Log.i("AppInterceptService created, usageStatsPermission: $hasUsageStatsPermission")
         launch {
             runMonitor()
         }
@@ -48,7 +51,7 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
                 newConfig?.let {
                     config = it
                     configChannel.trySend(it)
-                    Log.d("AppInterceptService config updated: ${it.interceptPackages.size} packages")
+                    Log.d("AppInterceptService config updated: ${it.interceptPackages.size} packages, enabled: ${it.enabled}")
                 }
             }
             AppInterceptConstants.ACTION_CLEAR_VERIFIED -> {
@@ -72,10 +75,30 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
         super.onDestroy()
     }
 
+    private fun checkUsageStatsPermission(): Boolean {
+        val appOps = getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+        val mode = appOps.checkOpNoThrow(
+            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+            android.os.Process.myUid(),
+            packageName
+        )
+        return mode == android.app.AppOpsManager.MODE_ALLOWED
+    }
+
     private suspend fun runMonitor() {
         val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
 
         while (isActive) {
+            // 检查权限状态
+            if (!hasUsageStatsPermission) {
+                hasUsageStatsPermission = checkUsageStatsPermission()
+                if (!hasUsageStatsPermission) {
+                    Log.w("AppInterceptService: No usage stats permission, skip monitoring")
+                    delay(5000) // 5秒后再检查
+                    continue
+                }
+            }
+
             // 每秒检查一次前台应用
             if (config.enabled) {
                 checkForegroundApp(usageStatsManager)
@@ -108,15 +131,16 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
             // 如果检测到新的前台应用
             if (currentApp != null && currentApp != lastForegroundPackage) {
                 lastForegroundPackage = currentApp
+                Log.d("AppInterceptService: Foreground app changed to $currentApp")
 
                 // 检查是否需要拦截
                 if (shouldIntercept(currentApp)) {
-                    Log.i("Intercepting app: $currentApp")
+                    Log.i("AppInterceptService: Intercepting app: $currentApp")
                     notifyInterceptRequired(currentApp)
                 }
             }
         } catch (e: Exception) {
-            Log.e("Error checking foreground app: ${e.message}")
+            Log.e("AppInterceptService: Error checking foreground app: ${e.message}")
         }
     }
 
@@ -133,9 +157,10 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
         val intent = Intent(AppInterceptConstants.ACTION_APP_INTERCEPT_REQUIRED).apply {
             putExtra(AppInterceptConstants.EXTRA_PACKAGE_NAME, packageName)
             putExtra(AppInterceptConstants.EXTRA_VERIFY_HINT, config.verifyHint)
-            setPackage(packageName)
+            setPackage(this@AppInterceptService.packageName) // 设置为本应用包名
         }
         sendBroadcast(intent)
+        Log.i("AppInterceptService: Broadcast sent for $packageName")
     }
 
     companion object {
