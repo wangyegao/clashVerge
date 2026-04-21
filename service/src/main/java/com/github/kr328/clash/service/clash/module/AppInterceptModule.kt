@@ -17,8 +17,14 @@ class AppInterceptModule(service: Service) : Module<Unit>(service) {
     private var currentConfig: AppInterceptConfig = AppInterceptConfig()
 
     override suspend fun run() {
-        // 加载配置文件
-        loadConfig()
+        Log.i("AppInterceptModule: Starting...")
+
+        // 先加载默认配置
+        loadDefaultConfig()
+        Log.i("AppInterceptModule: Default config loaded, packages: ${currentConfig.interceptPackages}, enabled: ${currentConfig.enabled}")
+
+        // 尝试加载用户配置（如果存在）
+        loadUserConfig()
 
         // 启动拦截服务
         startInterceptService()
@@ -32,37 +38,48 @@ class AppInterceptModule(service: Service) : Module<Unit>(service) {
         while (true) {
             configChanged.receive()
             // 重新加载配置
-            loadConfig()
+            loadDefaultConfig()
+            loadUserConfig()
             updateInterceptService()
         }
     }
 
-    private fun loadConfig() {
+    private fun loadUserConfig() {
         try {
-            val configFile = File(service.filesDir.parentFile, "clash/config.yaml")
-            if (configFile.exists()) {
-                val yamlContent = configFile.readText()
-                currentConfig = parseYamlConfig(yamlContent)
-                Log.d("AppIntercept config loaded: ${currentConfig.interceptPackages.size} packages")
-            } else {
-                // 尝试从assets加载默认配置
-                loadDefaultConfig()
+            // 尝试多个可能的配置文件路径
+            val possiblePaths = listOf(
+                File(service.filesDir, "clash/config.yaml"),
+                File(service.filesDir.parentFile, "clash/config.yaml"),
+                File(service.getExternalFilesDir(null), "clash/config.yaml")
+            )
+
+            for (configFile in possiblePaths) {
+                if (configFile.exists()) {
+                    Log.d("AppInterceptModule: Found config at ${configFile.absolutePath}")
+                    val yamlContent = configFile.readText()
+                    val userConfig = parseYamlConfig(yamlContent)
+                    if (userConfig.interceptPackages.isNotEmpty()) {
+                        currentConfig = userConfig
+                        Log.i("AppInterceptModule: User config loaded, packages: ${userConfig.interceptPackages}")
+                        return
+                    }
+                }
             }
+            Log.d("AppInterceptModule: No user config found, using default")
         } catch (e: Exception) {
-            Log.e("Failed to load AppIntercept config: ${e.message}")
-            loadDefaultConfig()
+            Log.e("AppInterceptModule: Failed to load user config: ${e.message}")
         }
     }
 
     private fun loadDefaultConfig() {
         try {
-            val defaultConfig = service.assets.open("datas/default-rules.yaml").use {
-                parseYamlConfig(it.bufferedReader().readText())
+            val defaultConfigStr = service.assets.open("datas/default-rules.yaml").use {
+                it.bufferedReader().readText()
             }
-            currentConfig = defaultConfig
-            Log.d("AppIntercept default config loaded: ${currentConfig.interceptPackages.size} packages")
+            currentConfig = parseYamlConfig(defaultConfigStr)
+            Log.i("AppInterceptModule: Default config loaded: ${currentConfig.interceptPackages.size} packages, enabled: ${currentConfig.enabled}")
         } catch (e: Exception) {
-            Log.e("Failed to load default config: ${e.message}")
+            Log.e("AppInterceptModule: Failed to load default config: ${e.message}")
             currentConfig = AppInterceptConfig()
         }
     }
@@ -99,12 +116,14 @@ class AppInterceptModule(service: Service) : Module<Unit>(service) {
             }
         }
 
-        return AppInterceptConfig(
+        val config = AppInterceptConfig(
             interceptPackages = interceptPackages,
             verifyPassword = verifyPassword,
             verifyHint = verifyHint,
             enabled = interceptPackages.isNotEmpty() && verifyPassword.isNotEmpty()
         )
+        Log.d("AppInterceptModule: Parsed config - packages: $interceptPackages, password: '${verifyPassword.take(10)}...', enabled: ${config.enabled}")
+        return config
     }
 
     private fun startInterceptService() {
@@ -114,13 +133,13 @@ class AppInterceptModule(service: Service) : Module<Unit>(service) {
         } else {
             service.startService(intent)
         }
-        Log.i("AppInterceptService started")
+        Log.i("AppInterceptModule: Service started with config enabled=${currentConfig.enabled}")
     }
 
     private fun updateInterceptService() {
         val intent = AppInterceptService.createUpdateConfigIntent(service, currentConfig)
         service.startService(intent)
-        Log.d("AppInterceptService config updated")
+        Log.d("AppInterceptModule: Service updated")
     }
 
     /**
@@ -129,6 +148,6 @@ class AppInterceptModule(service: Service) : Module<Unit>(service) {
     fun stopInterceptService() {
         val intent = Intent(service, AppInterceptService::class.java)
         service.stopService(intent)
-        Log.i("AppInterceptService stopped")
+        Log.i("AppInterceptModule: Service stopped")
     }
 }
