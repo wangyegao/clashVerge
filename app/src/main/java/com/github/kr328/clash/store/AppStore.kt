@@ -16,6 +16,21 @@ class AppStore(context: Context) {
         defaultValue = -1,
     )
 
+    var appInterceptPermissionGuideShown: Boolean by store.boolean(
+        key = "app_intercept_permission_guide_shown",
+        defaultValue = false,
+    )
+
+    var appInterceptPermissionGuideCompleted: Boolean by store.boolean(
+        key = "app_intercept_permission_guide_completed",
+        defaultValue = false,
+    )
+
+    var appInterceptOnboardingShown: Boolean by store.boolean(
+        key = "app_intercept_onboarding_shown",
+        defaultValue = false,
+    )
+
     companion object {
         private const val FILE_NAME = "app"
     }

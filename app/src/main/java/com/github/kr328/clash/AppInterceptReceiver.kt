@@ -150,9 +150,11 @@ class AppInterceptReceiver : BroadcastReceiver() {
                 if (config.acceptsInput(input)) {
                     Toast.makeText(context, "确认成功，可以继续使用", Toast.LENGTH_SHORT).show()
                     markVerified(context, packageName)
-                    // 使用共享工具类上传
                     CoroutineScope(Dispatchers.Main).launch {
-                        AppInterceptUploader.uploadConfirmation(context, appName, packageName, input)
+                        val uploaded = AppInterceptUploader.uploadConfirmation(context, appName, packageName, input)
+                        if (!uploaded) {
+                            Toast.makeText(context, "确认成功，但承诺记录上传失败", Toast.LENGTH_SHORT).show()
+                        }
                     }
                     dialog.dismiss()
                 } else {

@@ -9,14 +9,15 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.IBinder
-import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import com.github.kr328.clash.common.constants.AppInterceptConstants
 import com.github.kr328.clash.common.log.Log
 import com.github.kr328.clash.service.model.AppInterceptConfig
+import com.github.kr328.clash.service.util.createOverlaySettingsIntent
+import com.github.kr328.clash.service.util.createUsageAccessSettingsIntent
+import com.github.kr328.clash.service.util.queryAppInterceptPermissionState
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 
@@ -40,8 +41,9 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
 
     override fun onCreate() {
         super.onCreate()
-        hasUsageStatsPermission = checkUsageStatsPermission()
-        lastOverlayPermission = hasOverlayPermission()
+        val permissionState = queryAppInterceptPermissionState()
+        hasUsageStatsPermission = permissionState.usageStatsGranted
+        lastOverlayPermission = permissionState.overlayGranted
         Log.i("AppInterceptService created, usageStatsPermission: $hasUsageStatsPermission")
 
         // 创建前台通知
@@ -98,16 +100,6 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
         super.onDestroy()
     }
 
-    private fun checkUsageStatsPermission(): Boolean {
-        val appOps = getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
-        val mode = appOps.checkOpNoThrow(
-            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
-            android.os.Process.myUid(),
-            packageName
-        )
-        return mode == android.app.AppOpsManager.MODE_ALLOWED
-    }
-
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -123,32 +115,25 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
     }
 
     private fun createNotification(): Notification {
-        val overlayPermission = hasOverlayPermission()
+        val permissionState = queryAppInterceptPermissionState()
         val contentText = when {
-            !hasUsageStatsPermission -> "请授予\"查看使用情况\"权限以启用拦截功能"
-            config.enabled && !overlayPermission -> "请授予悬浮窗权限，避免拦截弹窗被系统拦截"
+            !permissionState.usageStatsGranted -> "请授予\"查看使用情况\"权限，未授权时不会启用拦截"
+            config.enabled && !permissionState.overlayGranted -> "请授予悬浮窗权限，未授权时不会启用拦截"
             config.enabled -> "正在监控 ${config.interceptPackages.size} 个风险应用"
             else -> "拦截功能未启用"
         }
 
         val pendingIntent = when {
-            !hasUsageStatsPermission -> PendingIntent.getActivity(
+            !permissionState.usageStatsGranted -> PendingIntent.getActivity(
                 this,
                 0,
-                Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                },
+                createUsageAccessSettingsIntent(),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-            config.enabled && !overlayPermission -> PendingIntent.getActivity(
+            config.enabled && !permissionState.overlayGranted -> PendingIntent.getActivity(
                 this,
                 1,
-                Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:$packageName")
-                ).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                },
+                createOverlaySettingsIntent(),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
             else -> null
@@ -173,30 +158,34 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
         val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
 
         while (isActive) {
+            val permissionState = queryAppInterceptPermissionState()
+            hasUsageStatsPermission = permissionState.usageStatsGranted
+
             // 检查权限状态
             if (!hasUsageStatsPermission) {
-                hasUsageStatsPermission = checkUsageStatsPermission()
-                if (!hasUsageStatsPermission) {
-                    if (!permissionNotified) {
-                        Log.w("AppInterceptService: No usage stats permission, showing notification")
-                        updateNotification()
-                        permissionNotified = true
-                    }
-                    delay(5000) // 5秒后再检查
-                    continue
-                } else {
-                    // 权限已授予，更新通知
-                    permissionNotified = false
+                if (!permissionNotified) {
+                    Log.w("AppInterceptService: No usage stats permission, showing notification")
                     updateNotification()
-                    Log.i("AppInterceptService: Usage stats permission granted")
+                    permissionNotified = true
                 }
+                delay(5000) // 5秒后再检查
+                continue
+            } else if (permissionNotified) {
+                permissionNotified = false
+                updateNotification()
+                Log.i("AppInterceptService: Usage stats permission granted")
             }
 
-            val overlayPermission = hasOverlayPermission()
+            val overlayPermission = permissionState.overlayGranted
             if (overlayPermission != lastOverlayPermission) {
                 lastOverlayPermission = overlayPermission
                 updateNotification()
                 Log.i("AppInterceptService: Overlay permission changed: $overlayPermission")
+            }
+
+            if (config.enabled && !overlayPermission) {
+                delay(3000)
+                continue
             }
 
             // 每秒检查一次前台应用
@@ -266,10 +255,6 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
         }
         sendBroadcast(intent)
         Log.i("AppInterceptService: Broadcast sent for $packageName")
-    }
-
-    private fun hasOverlayPermission(): Boolean {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
     }
 
     companion object {

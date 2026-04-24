@@ -91,7 +91,19 @@ class AppInterceptDialogActivity : AppCompatActivity() {
                 Toast.makeText(this, "确认成功，可以继续使用", Toast.LENGTH_SHORT).show()
                 markVerified(packageName)
                 CoroutineScope(Dispatchers.Main).launch {
-                    AppInterceptUploader.uploadConfirmation(this@AppInterceptDialogActivity, appName, packageName, input)
+                    val uploaded = AppInterceptUploader.uploadConfirmation(
+                        this@AppInterceptDialogActivity,
+                        appName,
+                        packageName,
+                        input,
+                    )
+                    if (!uploaded) {
+                        Toast.makeText(
+                            this@AppInterceptDialogActivity,
+                            "确认成功，但承诺记录上传失败",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
                 }
                 dialog.dismiss()
                 finish()
