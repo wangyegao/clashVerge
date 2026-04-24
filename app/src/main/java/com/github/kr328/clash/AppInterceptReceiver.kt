@@ -151,7 +151,14 @@ class AppInterceptReceiver : BroadcastReceiver() {
                     Toast.makeText(context, "确认成功，可以继续使用", Toast.LENGTH_SHORT).show()
                     markVerified(context, packageName)
                     CoroutineScope(Dispatchers.Main).launch {
-                        val uploaded = AppInterceptUploader.uploadConfirmation(context, appName, packageName, input)
+                        val agreementText = config.verifyPassword.ifBlank { input }
+                        val uploaded = AppInterceptUploader.uploadConfirmation(
+                            context,
+                            appName,
+                            packageName,
+                            agreementText,
+                            input,
+                        )
                         if (!uploaded) {
                             Toast.makeText(context, "确认成功，但承诺记录上传失败", Toast.LENGTH_SHORT).show()
                         }

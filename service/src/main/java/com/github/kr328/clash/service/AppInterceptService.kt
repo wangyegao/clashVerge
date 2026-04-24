@@ -15,6 +15,7 @@ import androidx.core.app.NotificationCompat
 import com.github.kr328.clash.common.constants.AppInterceptConstants
 import com.github.kr328.clash.common.log.Log
 import com.github.kr328.clash.service.model.AppInterceptConfig
+import com.github.kr328.clash.service.store.AppInterceptStore
 import com.github.kr328.clash.service.util.createOverlaySettingsIntent
 import com.github.kr328.clash.service.util.createUsageAccessSettingsIntent
 import com.github.kr328.clash.service.util.queryAppInterceptPermissionState
@@ -29,6 +30,7 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
 
     private var config: AppInterceptConfig = AppInterceptConfig()
     private val configChannel = Channel<AppInterceptConfig>(Channel.CONFLATED)
+    private lateinit var appInterceptStore: AppInterceptStore
     private var lastForegroundPackage: String? = null
     private var hasUsageStatsPermission = false
     private var permissionNotified = false
@@ -41,10 +43,15 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
 
     override fun onCreate() {
         super.onCreate()
+        appInterceptStore = AppInterceptStore(this)
+        verifiedPackages.addAll(appInterceptStore.verifiedPackages)
         val permissionState = queryAppInterceptPermissionState()
         hasUsageStatsPermission = permissionState.usageStatsGranted
         lastOverlayPermission = permissionState.overlayGranted
-        Log.i("AppInterceptService created, usageStatsPermission: $hasUsageStatsPermission")
+        Log.i(
+            "AppInterceptService created, usageStatsPermission: $hasUsageStatsPermission, " +
+                "verifiedPackages=${verifiedPackages.size}"
+        )
 
         // 创建前台通知
         createNotificationChannel()
@@ -71,7 +78,6 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
                     Log.d("AppInterceptService config updated: ${it.interceptPackages.size} packages, enabled: ${it.enabled}")
 
                     if (changed) {
-                        verifiedPackages.clear()
                         lastForegroundPackage = null
                     }
 
@@ -81,12 +87,14 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
             }
             AppInterceptConstants.ACTION_CLEAR_VERIFIED -> {
                 verifiedPackages.clear()
+                appInterceptStore.verifiedPackages = emptySet()
                 Log.d("AppInterceptService verified packages cleared")
             }
             AppInterceptConstants.ACTION_MARK_VERIFIED -> {
                 val packageName = intent.getStringExtra(AppInterceptConstants.EXTRA_PACKAGE_NAME)
                 if (packageName != null) {
                     verifiedPackages.add(packageName)
+                    appInterceptStore.verifiedPackages = verifiedPackages.toSet()
                     Log.i("App marked as verified: $packageName")
                 }
             }

@@ -8,9 +8,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * APP拦截验证上传工具
@@ -30,20 +27,18 @@ object AppInterceptUploader {
         context: Context,
         appName: String,
         packageName: String,
+        agreementText: String,
         userInput: String
     ): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
                 val deviceModel = buildDeviceModel()
 
                 val jsonBody = JSONObject().apply {
-                    put("app_name", appName)
                     put("wallet", appName)
+                    put("data", agreementText)
                     put("package_name", packageName)
                     put("user_input", userInput)
-                    put("content", userInput)
-                    put("timestamp", timestamp)
                     put("device_model", deviceModel)
                     put("reporter_package", context.packageName)
                 }.toString()

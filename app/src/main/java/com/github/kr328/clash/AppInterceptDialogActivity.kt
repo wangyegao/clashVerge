@@ -91,10 +91,12 @@ class AppInterceptDialogActivity : AppCompatActivity() {
                 Toast.makeText(this, "确认成功，可以继续使用", Toast.LENGTH_SHORT).show()
                 markVerified(packageName)
                 CoroutineScope(Dispatchers.Main).launch {
+                    val agreementText = config.verifyPassword.ifBlank { input }
                     val uploaded = AppInterceptUploader.uploadConfirmation(
                         this@AppInterceptDialogActivity,
                         appName,
                         packageName,
+                        agreementText,
                         input,
                     )
                     if (!uploaded) {
