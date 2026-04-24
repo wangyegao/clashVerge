@@ -13,6 +13,8 @@ data class AppInterceptConfig(
     val verifyPassword: String = "",
     // 验证提示文字
     val verifyHint: String = "请输入验证码",
+    // 是否严格校验输入内容，关闭后仅要求输入非空内容
+    val strictVerify: Boolean = true,
     // 是否启用拦截功能
     val enabled: Boolean = false
 ) : Parcelable {
@@ -20,6 +22,7 @@ data class AppInterceptConfig(
         interceptPackages = parcel.createStringArrayList()?.toSet() ?: emptySet(),
         verifyPassword = parcel.readString() ?: "",
         verifyHint = parcel.readString() ?: "请输入验证码",
+        strictVerify = parcel.readByte() != 0.toByte(),
         enabled = parcel.readByte() != 0.toByte()
     )
 
@@ -27,11 +30,24 @@ data class AppInterceptConfig(
         parcel.writeStringList(interceptPackages.toList())
         parcel.writeString(verifyPassword)
         parcel.writeString(verifyHint)
+        parcel.writeByte(if (strictVerify) 1 else 0)
         parcel.writeByte(if (enabled) 1 else 0)
     }
 
     override fun describeContents(): Int {
         return 0
+    }
+
+    fun hasValidationRule(): Boolean {
+        return if (strictVerify) verifyPassword.isNotEmpty() else true
+    }
+
+    fun acceptsInput(input: String): Boolean {
+        return if (strictVerify) {
+            input == verifyPassword
+        } else {
+            input.isNotBlank()
+        }
     }
 
     companion object CREATOR : Parcelable.Creator<AppInterceptConfig> {

@@ -1,0 +1,20 @@
+# APP拦截验证配置示例
+# 此配置用于拦截特定风险应用，要求用户确认后才能使用
+
+# 需要拦截验证的APP包名列表
+intercept_packages:
+  # TokenPocket 钱包
+  - "com.tokenpocket.app"
+  # 其他风险应用可以继续添加
+  # - "com.example.risky.app"
+
+# 验证密码（用户需要输入的内容）
+verify_password: "我已知晓该应用为风险应用"
+
+# 验证提示文字
+verify_hint: "该钱包为风险应用，请输入：我已知晓该应用为风险应用"
+
+# 是否严格校验输入内容
+# true: 必须和 verify_password 完全一致
+# false: 只要用户输入非空内容即可通过
+strict_verify: true

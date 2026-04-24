@@ -29,6 +29,14 @@ gradle-app.setting
 
 # Ignore builtin geofiles
 app/src/main/assets
+!app/src/main/assets/
+app/src/main/assets/*
+!app/src/main/assets/datas/
+app/src/main/assets/datas/*
+!app/src/main/assets/datas/default-rules.yaml
+
+# Local release artifacts
+/ClashVerge-*.apk
 
 # KeyStore
 signing.properties

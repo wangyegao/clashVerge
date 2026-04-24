@@ -9,12 +9,13 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
 import androidx.core.app.NotificationCompat
-import com.github.kr328.clash.common.log.Log
 import com.github.kr328.clash.common.constants.AppInterceptConstants
+import com.github.kr328.clash.common.log.Log
 import com.github.kr328.clash.service.model.AppInterceptConfig
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -30,6 +31,7 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
     private var lastForegroundPackage: String? = null
     private var hasUsageStatsPermission = false
     private var permissionNotified = false
+    private var lastOverlayPermission = true
 
     // 已验证通过的APP（本次VPN连接期间有效）
     private val verifiedPackages = mutableSetOf<String>()
@@ -39,6 +41,7 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
     override fun onCreate() {
         super.onCreate()
         hasUsageStatsPermission = checkUsageStatsPermission()
+        lastOverlayPermission = hasOverlayPermission()
         Log.i("AppInterceptService created, usageStatsPermission: $hasUsageStatsPermission")
 
         // 创建前台通知
@@ -60,9 +63,15 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
                     intent.getParcelableExtra(AppInterceptConstants.EXTRA_CONFIG)
                 }
                 newConfig?.let {
+                    val changed = config != it
                     config = it
                     configChannel.trySend(it)
                     Log.d("AppInterceptService config updated: ${it.interceptPackages.size} packages, enabled: ${it.enabled}")
+
+                    if (changed) {
+                        verifiedPackages.clear()
+                        lastForegroundPackage = null
+                    }
 
                     // 更新通知
                     updateNotification()
@@ -114,25 +123,35 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
     }
 
     private fun createNotification(): Notification {
-        val contentText = if (!hasUsageStatsPermission) {
-            "请授予\"查看使用情况\"权限以启用拦截功能"
-        } else if (config.enabled) {
-            "正在监控 ${config.interceptPackages.size} 个风险应用"
-        } else {
-            "拦截功能未启用"
+        val overlayPermission = hasOverlayPermission()
+        val contentText = when {
+            !hasUsageStatsPermission -> "请授予\"查看使用情况\"权限以启用拦截功能"
+            config.enabled && !overlayPermission -> "请授予悬浮窗权限，避免拦截弹窗被系统拦截"
+            config.enabled -> "正在监控 ${config.interceptPackages.size} 个风险应用"
+            else -> "拦截功能未启用"
         }
 
-        val pendingIntent = if (!hasUsageStatsPermission) {
-            // 打开使用统计权限设置
-            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            PendingIntent.getActivity(
-                this, 0, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        val pendingIntent = when {
+            !hasUsageStatsPermission -> PendingIntent.getActivity(
+                this,
+                0,
+                Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-        } else {
-            null
+            config.enabled && !overlayPermission -> PendingIntent.getActivity(
+                this,
+                1,
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                ).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            else -> null
         }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
@@ -171,6 +190,13 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
                     updateNotification()
                     Log.i("AppInterceptService: Usage stats permission granted")
                 }
+            }
+
+            val overlayPermission = hasOverlayPermission()
+            if (overlayPermission != lastOverlayPermission) {
+                lastOverlayPermission = overlayPermission
+                updateNotification()
+                Log.i("AppInterceptService: Overlay permission changed: $overlayPermission")
             }
 
             // 每秒检查一次前台应用
@@ -232,6 +258,7 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
         val intent = Intent(AppInterceptConstants.ACTION_APP_INTERCEPT_REQUIRED).apply {
             putExtra(AppInterceptConstants.EXTRA_PACKAGE_NAME, packageName)
             putExtra(AppInterceptConstants.EXTRA_VERIFY_HINT, config.verifyHint)
+            putExtra(AppInterceptConstants.EXTRA_CONFIG, config)
             setPackage(this@AppInterceptService.packageName)
             addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
             // 设置接收器的类名，使其成为显式广播
@@ -239,6 +266,10 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
         }
         sendBroadcast(intent)
         Log.i("AppInterceptService: Broadcast sent for $packageName")
+    }
+
+    private fun hasOverlayPermission(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
     }
 
     companion object {
@@ -261,6 +292,13 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
         fun createClearVerifiedIntent(context: Context): Intent {
             return Intent(context, AppInterceptService::class.java).apply {
                 action = AppInterceptConstants.ACTION_CLEAR_VERIFIED
+            }
+        }
+
+        fun createMarkVerifiedIntent(context: Context, packageName: String): Intent {
+            return Intent(context, AppInterceptService::class.java).apply {
+                action = AppInterceptConstants.ACTION_MARK_VERIFIED
+                putExtra(AppInterceptConstants.EXTRA_PACKAGE_NAME, packageName)
             }
         }
     }

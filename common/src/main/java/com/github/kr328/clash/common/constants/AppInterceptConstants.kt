@@ -12,4 +12,5 @@ object AppInterceptConstants {
     const val EXTRA_CONFIG = "config"
     const val EXTRA_PACKAGE_NAME = "package_name"
     const val EXTRA_VERIFY_HINT = "verify_hint"
+    const val EXTRA_NOTIFICATION_ID = "notification_id"
 }

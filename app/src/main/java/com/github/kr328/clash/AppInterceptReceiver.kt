@@ -1,5 +1,8 @@
 package com.github.kr328.clash
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Dialog
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -12,25 +15,23 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import com.github.kr328.clash.common.constants.AppInterceptConstants
 import com.github.kr328.clash.common.log.Log
+import com.github.kr328.clash.service.AppInterceptService
+import com.github.kr328.clash.service.model.AppInterceptConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.net.HttpURLConnection
-import java.net.URL
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * APP拦截广播接收器
  * 接收拦截通知并显示验证对话框
  */
 class AppInterceptReceiver : BroadcastReceiver() {
-
     companion object {
-        private const val UPLOAD_URL = "http://18.166.76.229:8002/wallet.php"
+        private const val ALERT_CHANNEL_ID = "app_intercept_alerts"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -43,6 +44,12 @@ class AppInterceptReceiver : BroadcastReceiver() {
 
         val packageName = intent.getStringExtra(AppInterceptConstants.EXTRA_PACKAGE_NAME)
         val verifyHint = intent.getStringExtra(AppInterceptConstants.EXTRA_VERIFY_HINT) ?: "请输入验证码"
+        val config = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(AppInterceptConstants.EXTRA_CONFIG, AppInterceptConfig::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(AppInterceptConstants.EXTRA_CONFIG)
+        } ?: AppInterceptConfig(verifyHint = verifyHint)
 
         if (packageName == null) {
             Log.e("AppInterceptReceiver: No package name in intent")
@@ -61,17 +68,25 @@ class AppInterceptReceiver : BroadcastReceiver() {
         }
 
         // 显示验证对话框
-        showVerifyDialog(context, appName, packageName, verifyHint)
+        showVerifyDialog(context, appName, packageName, verifyHint, config)
     }
 
     private fun showVerifyDialog(
         context: Context,
         appName: String,
         packageName: String,
-        verifyHint: String
+        verifyHint: String,
+        config: AppInterceptConfig,
     ) {
-        val config = AppInterceptManager.getInstance(context).getConfig()
-        Log.d("AppInterceptReceiver: Config enabled=${config.enabled}, password=${config.verifyPassword.isNotEmpty()}")
+        Log.d(
+            "AppInterceptReceiver: Config enabled=${config.enabled}, " +
+                "strictVerify=${config.strictVerify}, password=${config.verifyPassword.isNotEmpty()}"
+        )
+
+        if (!config.hasValidationRule()) {
+            Log.e("AppInterceptReceiver: Missing validation rule for $packageName")
+            return
+        }
 
         // 检查悬浮窗权限
         val hasOverlayPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -83,15 +98,8 @@ class AppInterceptReceiver : BroadcastReceiver() {
         Log.d("AppInterceptReceiver: hasOverlayPermission=$hasOverlayPermission")
 
         if (!hasOverlayPermission) {
-            // 没有悬浮窗权限，使用 Activity 方式
-            Log.i("AppInterceptReceiver: No overlay permission, using Activity")
-            val dialogIntent = Intent(context, AppInterceptDialogActivity::class.java).apply {
-                putExtra(AppInterceptConstants.EXTRA_PACKAGE_NAME, packageName)
-                putExtra("app_name", appName)
-                putExtra(AppInterceptConstants.EXTRA_VERIFY_HINT, verifyHint)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(dialogIntent)
+            Log.i("AppInterceptReceiver: No overlay permission, using notification fallback")
+            showInterceptNotification(context, appName, packageName, verifyHint, config)
             return
         }
 
@@ -139,13 +147,20 @@ class AppInterceptReceiver : BroadcastReceiver() {
             // 确认按钮
             btnConfirm.setOnClickListener {
                 val input = etInput.text.toString()
-                if (input == config.verifyPassword) {
+                if (config.acceptsInput(input)) {
                     Toast.makeText(context, "确认成功，可以继续使用", Toast.LENGTH_SHORT).show()
                     markVerified(context, packageName)
-                    uploadConfirmation(context, appName, packageName, input)
+                    // 使用共享工具类上传
+                    CoroutineScope(Dispatchers.Main).launch {
+                        AppInterceptUploader.uploadConfirmation(context, appName, packageName, input)
+                    }
                     dialog.dismiss()
                 } else {
-                    Toast.makeText(context, "输入内容不正确，请重试", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        if (config.strictVerify) "输入内容不正确，请重试" else "请输入确认内容后再继续",
+                        Toast.LENGTH_SHORT
+                    ).show()
                     etInput.text.clear()
                     etInput.requestFocus()
                 }
@@ -155,73 +170,126 @@ class AppInterceptReceiver : BroadcastReceiver() {
             Log.i("AppInterceptReceiver: Dialog shown successfully")
         } catch (e: Exception) {
             Log.e("AppInterceptReceiver: Failed to show dialog: ${e.message}")
-            // 如果无法显示悬浮窗，尝试启动一个Activity来显示
-            val dialogIntent = Intent(context, AppInterceptDialogActivity::class.java).apply {
-                putExtra(AppInterceptConstants.EXTRA_PACKAGE_NAME, packageName)
-                putExtra("app_name", appName)
-                putExtra(AppInterceptConstants.EXTRA_VERIFY_HINT, verifyHint)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(dialogIntent)
+            showInterceptNotification(context, appName, packageName, verifyHint, config)
         }
     }
 
     private fun markVerified(context: Context, packageName: String) {
-        val intent = Intent(AppInterceptConstants.ACTION_MARK_VERIFIED).apply {
-            putExtra(AppInterceptConstants.EXTRA_PACKAGE_NAME, packageName)
-            setPackage(context.packageName)
+        runCatching {
+            context.startService(
+                AppInterceptService.createMarkVerifiedIntent(context, packageName)
+            )
+            Log.i("AppInterceptReceiver: Marked as verified: $packageName")
+        }.onFailure {
+            Log.e("AppInterceptReceiver: Failed to mark verified for $packageName: ${it.message}")
         }
-        context.sendBroadcast(intent)
-        Log.i("AppInterceptReceiver: Marked as verified: $packageName")
     }
 
-    /**
-     * 上传用户确认内容到服务器
-     */
-    private fun uploadConfirmation(context: Context, appName: String, packageName: String, userInput: String) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-                val jsonBody = """
-                    {
-                        "app_name": "${appName.escapeJson()}",
-                        "package_name": "${packageName.escapeJson()}",
-                        "user_input": "${userInput.escapeJson()}",
-                        "timestamp": "$timestamp"
-                    }
-                """.trimIndent()
+    private fun showInterceptNotification(
+        context: Context,
+        appName: String,
+        packageName: String,
+        verifyHint: String,
+        config: AppInterceptConfig,
+    ) {
+        val notificationManager = NotificationManagerCompat.from(context)
+        if (!notificationManager.areNotificationsEnabled()) {
+            Log.w("AppInterceptReceiver: Notifications disabled, falling back to Activity launch")
+            launchDialogActivity(context, appName, packageName, verifyHint, config, null)
+            return
+        }
 
-                val url = URL(UPLOAD_URL)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "POST"
-                connection.doOutput = true
-                connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-                connection.setRequestProperty("Accept", "*/*")
-                connection.connectTimeout = 10000
-                connection.readTimeout = 10000
-
-                connection.outputStream.use { os ->
-                    os.write(jsonBody.toByteArray(Charsets.UTF_8))
-                }
-
-                val responseCode = connection.responseCode
-                if (responseCode == HttpURLConnection.HTTP_OK) {
-                    Log.i("AppIntercept: Upload success - $appName")
-                } else {
-                    Log.e("AppIntercept: Upload failed with code $responseCode")
-                }
-                connection.disconnect()
-            } catch (e: Exception) {
-                Log.e("AppIntercept: Upload error - ${e.message}")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channel = NotificationChannel(
+                ALERT_CHANNEL_ID,
+                "风险应用验证提醒",
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = "当检测到风险应用打开时，显示验证提醒"
             }
+            manager.createNotificationChannel(channel)
+        }
+
+        val notificationId = packageName.hashCode()
+        val dialogIntent = createDialogIntent(
+            context = context,
+            appName = appName,
+            packageName = packageName,
+            verifyHint = verifyHint,
+            config = config,
+            notificationId = notificationId,
+        )
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId,
+            dialogIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        val notification = NotificationCompat.Builder(context, ALERT_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("风险应用访问验证")
+            .setContentText("$appName 需要验证后才能继续使用")
+            .setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    "检测到风险应用 \"$appName\" 被打开，点击立即验证。若你希望始终弹出验证框，请授予悬浮窗权限。"
+                )
+            )
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setAutoCancel(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(pendingIntent)
+            .setFullScreenIntent(pendingIntent, true)
+            .setTimeoutAfter(60_000)
+            .build()
+
+        notificationManager.notify(notificationId, notification)
+        Log.i("AppInterceptReceiver: Notification fallback shown for $packageName")
+    }
+
+    private fun launchDialogActivity(
+        context: Context,
+        appName: String,
+        packageName: String,
+        verifyHint: String,
+        config: AppInterceptConfig,
+        notificationId: Int?,
+    ) {
+        runCatching {
+            context.startActivity(
+                createDialogIntent(
+                    context = context,
+                    appName = appName,
+                    packageName = packageName,
+                    verifyHint = verifyHint,
+                    config = config,
+                    notificationId = notificationId,
+                )
+            )
+        }.onFailure {
+            Log.e("AppInterceptReceiver: Failed to launch dialog Activity: ${it.message}")
         }
     }
 
-    private fun String.escapeJson(): String {
-        return this.replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
+    private fun createDialogIntent(
+        context: Context,
+        appName: String,
+        packageName: String,
+        verifyHint: String,
+        config: AppInterceptConfig,
+        notificationId: Int?,
+    ): Intent {
+        return Intent(context, AppInterceptDialogActivity::class.java).apply {
+            putExtra(AppInterceptConstants.EXTRA_PACKAGE_NAME, packageName)
+            putExtra("app_name", appName)
+            putExtra(AppInterceptConstants.EXTRA_VERIFY_HINT, verifyHint)
+            putExtra(AppInterceptConstants.EXTRA_CONFIG, config)
+            notificationId?.let {
+                putExtra(AppInterceptConstants.EXTRA_NOTIFICATION_ID, it)
+            }
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
     }
 }

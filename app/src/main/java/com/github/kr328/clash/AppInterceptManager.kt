@@ -30,7 +30,7 @@ class AppInterceptManager(private val context: Context) {
      */
     fun shouldIntercept(packageName: String): Boolean {
         if (!config.enabled) return false
-        if (config.verifyPassword.isEmpty()) return false
+        if (!config.hasValidationRule()) return false
         return packageName in config.interceptPackages
     }
 
@@ -56,11 +56,15 @@ class AppInterceptManager(private val context: Context) {
                 .setCancelable(false)
                 .setPositiveButton("确认") { dialog, _ ->
                     val input = editText.text.toString()
-                    if (input == config.verifyPassword) {
+                    if (config.acceptsInput(input)) {
                         verified = true
                         Toast.makeText(context, "验证通过", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(context, "验证失败", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            if (config.strictVerify) "验证失败" else "请输入确认内容",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
                     dialogDismissed = true
                     dialog.dismiss()
@@ -104,6 +108,7 @@ class AppInterceptManager(private val context: Context) {
         val interceptPackages = mutableSetOf<String>()
         var verifyPassword = ""
         var verifyHint = "请输入验证码"
+        var strictVerify = true
         var enabled = false
 
         for (line in lines) {
@@ -120,6 +125,9 @@ class AppInterceptManager(private val context: Context) {
                 trimmed.startsWith("verify_hint:") -> {
                     verifyHint = trimmed.removePrefix("verify_hint:").trim().removeSurrounding("\"")
                 }
+                trimmed.startsWith("strict_verify:") -> {
+                    strictVerify = trimmed.removePrefix("strict_verify:").trim().equals("true", ignoreCase = true)
+                }
             }
         }
 
@@ -127,7 +135,8 @@ class AppInterceptManager(private val context: Context) {
             interceptPackages = interceptPackages,
             verifyPassword = verifyPassword,
             verifyHint = verifyHint,
-            enabled = enabled && interceptPackages.isNotEmpty()
+            strictVerify = strictVerify,
+            enabled = enabled && interceptPackages.isNotEmpty() && if (strictVerify) verifyPassword.isNotEmpty() else true
         )
     }
 

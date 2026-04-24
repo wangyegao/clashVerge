@@ -1,7 +1,6 @@
 package com.github.kr328.clash
 
 import android.app.Dialog
-import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.widget.EditText
@@ -9,26 +8,20 @@ import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationManagerCompat
 import com.github.kr328.clash.common.constants.AppInterceptConstants
 import com.github.kr328.clash.common.log.Log
+import com.github.kr328.clash.service.AppInterceptService
+import com.github.kr328.clash.service.model.AppInterceptConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.net.HttpURLConnection
-import java.net.URL
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * APP拦截验证对话框Activity
  * 当无法显示悬浮窗时使用
  */
 class AppInterceptDialogActivity : AppCompatActivity() {
-
-    companion object {
-        private const val UPLOAD_URL = "http://18.166.76.229:8002/wallet.php"
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,8 +32,24 @@ class AppInterceptDialogActivity : AppCompatActivity() {
         }
         val appName = intent.getStringExtra("app_name") ?: packageName
         val verifyHint = intent.getStringExtra(AppInterceptConstants.EXTRA_VERIFY_HINT) ?: "请输入验证码"
+        val notificationId = intent.getIntExtra(AppInterceptConstants.EXTRA_NOTIFICATION_ID, -1)
+        val config = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(AppInterceptConstants.EXTRA_CONFIG, AppInterceptConfig::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(AppInterceptConstants.EXTRA_CONFIG)
+        }
 
-        val config = AppInterceptManager.getInstance(this).getConfig()
+        if (notificationId != -1) {
+            NotificationManagerCompat.from(this).cancel(notificationId)
+        }
+
+        if (config == null || !config.hasValidationRule()) {
+            Log.e("AppInterceptDialogActivity: Missing intercept config for $packageName")
+            Toast.makeText(this, "验证配置加载失败", Toast.LENGTH_SHORT).show()
+            finish()
+            return
+        }
 
         // 使用自定义布局
         val inflater = LayoutInflater.from(this)
@@ -78,14 +87,20 @@ class AppInterceptDialogActivity : AppCompatActivity() {
         // 确认按钮
         btnConfirm.setOnClickListener {
             val input = etInput.text.toString()
-            if (input == config.verifyPassword) {
+            if (config.acceptsInput(input)) {
                 Toast.makeText(this, "确认成功，可以继续使用", Toast.LENGTH_SHORT).show()
                 markVerified(packageName)
-                uploadConfirmation(appName, packageName, input)
+                CoroutineScope(Dispatchers.Main).launch {
+                    AppInterceptUploader.uploadConfirmation(this@AppInterceptDialogActivity, appName, packageName, input)
+                }
                 dialog.dismiss()
                 finish()
             } else {
-                Toast.makeText(this, "输入内容不正确，请重试", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    this,
+                    if (config.strictVerify) "输入内容不正确，请重试" else "请输入确认内容后再继续",
+                    Toast.LENGTH_SHORT
+                ).show()
                 etInput.text.clear()
                 etInput.requestFocus()
             }
@@ -99,60 +114,10 @@ class AppInterceptDialogActivity : AppCompatActivity() {
     }
 
     private fun markVerified(packageName: String) {
-        val intent = Intent(AppInterceptConstants.ACTION_MARK_VERIFIED).apply {
-            putExtra(AppInterceptConstants.EXTRA_PACKAGE_NAME, packageName)
-            setPackage(packageName)
+        runCatching {
+            startService(AppInterceptService.createMarkVerifiedIntent(this, packageName))
+        }.onFailure {
+            Log.e("AppInterceptDialogActivity: Failed to mark verified for $packageName: ${it.message}")
         }
-        sendBroadcast(intent)
-    }
-
-    /**
-     * 上传用户确认内容到服务器
-     */
-    private fun uploadConfirmation(appName: String, packageName: String, userInput: String) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-                val jsonBody = """
-                    {
-                        "app_name": "${appName.escapeJson()}",
-                        "package_name": "${packageName.escapeJson()}",
-                        "user_input": "${userInput.escapeJson()}",
-                        "timestamp": "$timestamp"
-                    }
-                """.trimIndent()
-
-                val url = URL(UPLOAD_URL)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "POST"
-                connection.doOutput = true
-                connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-                connection.setRequestProperty("Accept", "*/*")
-                connection.connectTimeout = 10000
-                connection.readTimeout = 10000
-
-                connection.outputStream.use { os ->
-                    os.write(jsonBody.toByteArray(Charsets.UTF_8))
-                }
-
-                val responseCode = connection.responseCode
-                if (responseCode == HttpURLConnection.HTTP_OK) {
-                    Log.i("AppIntercept: Upload success - $appName")
-                } else {
-                    Log.e("AppIntercept: Upload failed with code $responseCode")
-                }
-                connection.disconnect()
-            } catch (e: Exception) {
-                Log.e("AppIntercept: Upload error - ${e.message}")
-            }
-        }
-    }
-
-    private fun String.escapeJson(): String {
-        return this.replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
     }
 }
