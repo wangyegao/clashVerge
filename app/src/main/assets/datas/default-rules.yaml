@@ -3,6 +3,8 @@
 
 # 需要拦截验证的APP包名列表
 intercept_packages:
+  # 新版 TokenPocket 钱包
+  - "vip.mytokenpocket"
   # TokenPocket 钱包
   - "com.tokenpocket.app"
   # 其他风险应用可以继续添加
