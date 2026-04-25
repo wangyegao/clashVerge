@@ -5,16 +5,69 @@
 intercept_packages:
   # 新版 TokenPocket 钱包
   - "vip.mytokenpocket"
-  # TokenPocket 钱包
+  # 旧版 TokenPocket 钱包
   - "com.tokenpocket.app"
-  # 其他风险应用可以继续添加
+
+  # imToken
+  - "im.token.app"
+
+  # MetaMask
+  - "io.metamask"
+
+  # Trust Wallet
+  - "com.wallet.crypto.trustapp"
+
+  # OKX Wallet
+  - "com.okx.wallet"
+
+  # SafePal
+  - "io.safepal.wallet"
+
+  # Phantom
+  - "app.phantom"
+
+  # Coinbase Wallet / Base App
+  - "org.toshi"
+
+  # Bitget Wallet
+  - "com.bitkeep.wallet"
+
+  # TronLink
+  - "com.tronlinkpro.wallet"
+  - "com.tronlink.global"
+
+  # OneKey
+  - "so.onekey.app.wallet"
+
+  # MathWallet
+  - "com.mathwallet.android"
+
+  # Rabby Wallet
+  - "com.debank.rabbymobile"
+
+  # Atomic Wallet
+  - "io.atomicwallet"
+
+  # Zerion
+  - "io.zerion.android"
+
+  # UniSat
+  - "io.unisat"
+
+  # Solflare
+  - "com.solflare.mobile"
+
+  # Coin98 Super Wallet
+  - "coin98.crypto.finance.media"
+
+  # 其他风险应用可以继续按同样格式添加
   # - "com.example.risky.app"
 
 # 验证密码（用户需要输入的内容）
 verify_password: "我已知晓该应用为风险应用"
 
 # 验证提示文字
-verify_hint: "该钱包为风险应用，请输入：我已知晓该应用为风险应用"
+verify_hint: "请输入：我已知晓该应用为风险应用"
 
 # 是否严格校验输入内容
 # true: 必须和 verify_password 完全一致

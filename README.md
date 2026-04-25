@@ -55,6 +55,11 @@ Feature of [Clash.Meta](https://github.com/MetaCubeX/Clash.Meta)
    ./gradlew app:assembleAlphaRelease
    ```
 
+### Local Meta Release Build
+
+For local Meta release packaging, installation, and reset testing commands, see [LOCAL_BUILD_AND_TEST.md](LOCAL_BUILD_AND_TEST.md).
+You can load the Android build environment with `source ./android-env.sh`.
+
 ### Automation
 
 APP package name is `com.github.metacubex.clash.meta`
