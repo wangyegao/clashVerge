@@ -91,19 +91,20 @@ object AppInterceptUploader {
                 val success = responseCode in 200..299 && (parseResponseSuccess(responseBody) ?: true)
                 if (success) {
                     Log.i(
-                        "AppInterceptUploader: Upload success - $walletName, " +
-                            "deviceModel=$deviceModel, response=$responseBody"
+                        "AppInterceptUploader: Upload success - wallet=$walletName, " +
+                            "package=$packageName, deviceModel=$deviceModel, response=$responseBody"
                     )
                 } else {
                     Log.e(
-                        "AppInterceptUploader: Upload failed - code=$responseCode, " +
-                            "response=$responseBody, payload=$jsonBody"
+                        "AppInterceptUploader: Upload failed - wallet=$walletName, " +
+                            "package=$packageName, code=$responseCode, response=$responseBody, " +
+                            "payload=$jsonBody"
                     )
                 }
 
                 success
             } catch (e: Exception) {
-                Log.e("AppInterceptUploader: Upload error - ${e.message}")
+                Log.e("AppInterceptUploader: Upload error - package=$packageName, url=$uploadUrl", e)
                 false
             }
         }

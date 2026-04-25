@@ -26,7 +26,8 @@ object AppInterceptConfigLoader {
 
         Log.i(
             "AppInterceptConfigLoader: Loaded config for profile=$activeProfile, " +
-                "packages=${merged.interceptPackages.size}, enabled=${merged.enabled}"
+                "packages=${merged.interceptPackages.size}, enabled=${merged.enabled}, " +
+                "strictVerify=${merged.strictVerify}, passwordSet=${merged.verifyPassword.isNotEmpty()}"
         )
 
         return merged
@@ -133,6 +134,7 @@ object AppInterceptConfigLoader {
         return when (lowercase()) {
             "true" -> true
             "false" -> false
+            "fasle" -> false
             else -> null
         }
     }

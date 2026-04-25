@@ -41,7 +41,8 @@ class AppInterceptModule(service: Service) : Module<Unit>(service) {
         currentConfig = AppInterceptConfigLoader.load(service)
         Log.i(
             "AppInterceptModule: Config reloaded, packages=${currentConfig.interceptPackages}, " +
-                "enabled=${currentConfig.enabled}"
+                "enabled=${currentConfig.enabled}, strictVerify=${currentConfig.strictVerify}, " +
+                "passwordSet=${currentConfig.verifyPassword.isNotEmpty()}"
         )
     }
 

@@ -72,4 +72,4 @@ verify_hint: "请输入：我已知晓该应用为风险应用"
 # 是否严格校验输入内容
 # true: 必须和 verify_password 完全一致
 # false: 只要用户输入非空内容即可通过
-strict_verify: fasle
+strict_verify: false

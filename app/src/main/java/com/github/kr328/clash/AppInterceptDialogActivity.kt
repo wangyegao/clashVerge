@@ -86,10 +86,13 @@ class AppInterceptDialogActivity : AppCompatActivity() {
 
         // 确认按钮
         btnConfirm.setOnClickListener {
-            val input = etInput.text.toString()
+            val input = etInput.text.toString().trim()
             if (config.acceptsInput(input)) {
-                Toast.makeText(this, "确认成功，可以继续使用", Toast.LENGTH_SHORT).show()
-                markVerified(packageName)
+                btnConfirm.isEnabled = false
+                btnConfirm.text = "提交中..."
+                ivClose.isEnabled = false
+                etInput.isEnabled = false
+
                 CoroutineScope(Dispatchers.Main).launch {
                     val agreementText = config.verifyPassword.ifBlank { input }
                     val uploaded = AppInterceptUploader.uploadConfirmation(
@@ -99,6 +102,8 @@ class AppInterceptDialogActivity : AppCompatActivity() {
                         agreementText,
                         input,
                     )
+
+                    Toast.makeText(this@AppInterceptDialogActivity, "确认成功，可以继续使用", Toast.LENGTH_SHORT).show()
                     if (!uploaded) {
                         Toast.makeText(
                             this@AppInterceptDialogActivity,
@@ -106,9 +111,11 @@ class AppInterceptDialogActivity : AppCompatActivity() {
                             Toast.LENGTH_SHORT,
                         ).show()
                     }
+
+                    markVerified(packageName)
+                    dialog.dismiss()
+                    finish()
                 }
-                dialog.dismiss()
-                finish()
             } else {
                 Toast.makeText(
                     this,

@@ -1,8 +1,10 @@
 package com.github.kr328.clash.service.util
 
 import android.app.AppOpsManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -47,17 +49,15 @@ fun Context.createUsageAccessSettingsIntent(): Intent {
 }
 
 fun Context.createOverlaySettingsIntent(): Intent {
-    val fallbackIntent = Intent(
+    return Intent(
         Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-        Uri.parse("package:$packageName"),
+        createAppPackageUri(),
     ).apply {
+        putExtra(Settings.EXTRA_APP_PACKAGE, applicationContext.packageName)
+        putExtra("android.provider.extra.APP_PACKAGE", applicationContext.packageName)
+        putExtra("package_name", applicationContext.packageName)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
-
-    return createAppSpecificSettingsIntent(
-        activityClassName = "com.android.settings.Settings\$AppDrawOverlaySettingsActivity",
-        fallbackIntent = fallbackIntent,
-    )
 }
 
 fun Context.createNotificationSettingsIntent(): Intent {
@@ -82,18 +82,35 @@ private fun Context.createAppSpecificSettingsIntent(
 ): Intent {
     // Some vendor ROMs route generic special-access intents to a list page.
     // Prefer the app-specific settings page when the system exposes it.
+    val appPackageName = applicationContext.packageName
+    val componentName = ComponentName("com.android.settings", activityClassName)
     val specificIntent = Intent().apply {
-        setClassName("com.android.settings", activityClassName)
-        data = Uri.parse("package:$packageName")
-        putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
-        putExtra("android.provider.extra.APP_PACKAGE", packageName)
-        putExtra("package_name", packageName)
+        component = componentName
+        data = createAppPackageUri()
+        putExtra(Settings.EXTRA_APP_PACKAGE, appPackageName)
+        putExtra("android.provider.extra.APP_PACKAGE", appPackageName)
+        putExtra("package_name", appPackageName)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
-    return if (specificIntent.resolveActivity(packageManager) != null) {
+    return if (hasActivity(componentName)) {
         specificIntent
     } else {
         fallbackIntent
     }
+}
+
+private fun Context.createAppPackageUri(): Uri {
+    return Uri.fromParts("package", applicationContext.packageName, null)
+}
+
+private fun Context.hasActivity(componentName: ComponentName): Boolean {
+    return runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getActivityInfo(componentName, PackageManager.ComponentInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getActivityInfo(componentName, 0)
+        }
+    }.isSuccess
 }

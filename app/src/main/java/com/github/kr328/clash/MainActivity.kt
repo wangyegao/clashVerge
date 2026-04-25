@@ -3,6 +3,7 @@ package com.github.kr328.clash
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
@@ -33,6 +34,10 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
 class MainActivity : BaseActivity<MainDesign>() {
+    companion object {
+        private const val TAG = "MainActivity"
+    }
+
     private val appStore by lazy { AppStore(this) }
     private var appInterceptGuideRunning = false
 
@@ -234,10 +239,12 @@ class MainActivity : BaseActivity<MainDesign>() {
             if (!queryAppInterceptPermissionState().overlayGranted) {
                 val overlayGranted = requestAppInterceptPermission(
                     title = "继续完成权限设置",
-                    message = "还需要开启悬浮窗权限，应用拦截功能才能在检测到目标应用时立即弹出验证框。将优先跳转到 Clash Verge 的授权页；如果看到的是应用列表，请点开 Clash Verge 后再开启。",
+                    message = "还需要开启悬浮窗权限，应用拦截功能才能在检测到目标应用时立即弹出验证框。将跳转到系统的悬浮窗设置页；如果看到的是应用列表，请点开 Clash Verge 后再开启。",
                     settingsIntent = createOverlaySettingsIntent(),
                     checkGranted = { queryAppInterceptPermissionState().overlayGranted },
                     failureMessage = "未开启悬浮窗权限，应用拦截功能暂未启用",
+                    launchForResult = false,
+                    keepNewTaskFlag = true,
                 )
 
                 if (!overlayGranted) {
@@ -258,12 +265,33 @@ class MainActivity : BaseActivity<MainDesign>() {
         settingsIntent: android.content.Intent,
         checkGranted: () -> Boolean,
         failureMessage: String,
+        launchForResult: Boolean = true,
+        keepNewTaskFlag: Boolean = false,
     ): Boolean {
         if (!showAppInterceptPermissionDialog(title, message)) {
             return false
         }
 
-        startActivityForResult(ActivityResultContracts.StartActivityForResult(), settingsIntent)
+        val launchIntent = android.content.Intent(settingsIntent).apply {
+            if (!keepNewTaskFlag) {
+                flags = flags and android.content.Intent.FLAG_ACTIVITY_NEW_TASK.inv()
+            }
+        }
+
+        try {
+            if (launchForResult) {
+                startActivityForResult(ActivityResultContracts.StartActivityForResult(), launchIntent)
+            } else {
+                withContext(Dispatchers.Main) {
+                    startActivity(launchIntent)
+                }
+                waitForPermissionSettingsReturn(checkGranted)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to open permission settings for $title", e)
+            Toast.makeText(this, "无法打开系统权限页，请手动到系统设置中开启相关权限", Toast.LENGTH_LONG).show()
+            return false
+        }
 
         if (checkGranted()) {
             return true
@@ -271,6 +299,26 @@ class MainActivity : BaseActivity<MainDesign>() {
 
         Toast.makeText(this, failureMessage, Toast.LENGTH_LONG).show()
         return false
+    }
+
+    private suspend fun waitForPermissionSettingsReturn(
+        checkGranted: () -> Boolean,
+    ) {
+        var activityBackgrounded = false
+
+        repeat(300) {
+            if (checkGranted()) {
+                return
+            }
+
+            if (!activityStarted) {
+                activityBackgrounded = true
+            } else if (activityBackgrounded) {
+                return
+            }
+
+            kotlinx.coroutines.delay(200)
+        }
     }
 
     private suspend fun showAppInterceptPermissionDialog(
