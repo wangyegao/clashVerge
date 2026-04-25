@@ -36,18 +36,28 @@ fun Context.queryAppInterceptPermissionState(): AppInterceptPermissionState {
 }
 
 fun Context.createUsageAccessSettingsIntent(): Intent {
-    return Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+    val fallbackIntent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
+
+    return createAppSpecificSettingsIntent(
+        activityClassName = "com.android.settings.Settings\$AppUsageAccessSettingsActivity",
+        fallbackIntent = fallbackIntent,
+    )
 }
 
 fun Context.createOverlaySettingsIntent(): Intent {
-    return Intent(
+    val fallbackIntent = Intent(
         Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
         Uri.parse("package:$packageName"),
     ).apply {
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
+
+    return createAppSpecificSettingsIntent(
+        activityClassName = "com.android.settings.Settings\$AppDrawOverlaySettingsActivity",
+        fallbackIntent = fallbackIntent,
+    )
 }
 
 fun Context.createNotificationSettingsIntent(): Intent {
@@ -63,5 +73,27 @@ fun Context.createNotificationSettingsIntent(): Intent {
         ).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
+    }
+}
+
+private fun Context.createAppSpecificSettingsIntent(
+    activityClassName: String,
+    fallbackIntent: Intent,
+): Intent {
+    // Some vendor ROMs route generic special-access intents to a list page.
+    // Prefer the app-specific settings page when the system exposes it.
+    val specificIntent = Intent().apply {
+        setClassName("com.android.settings", activityClassName)
+        data = Uri.parse("package:$packageName")
+        putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+        putExtra("android.provider.extra.APP_PACKAGE", packageName)
+        putExtra("package_name", packageName)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    return if (specificIntent.resolveActivity(packageManager) != null) {
+        specificIntent
+    } else {
+        fallbackIntent
     }
 }

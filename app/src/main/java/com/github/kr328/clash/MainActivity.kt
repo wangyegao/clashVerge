@@ -219,11 +219,11 @@ class MainActivity : BaseActivity<MainDesign>() {
         try {
             if (!permissionState.usageStatsGranted) {
                 val usageGranted = requestAppInterceptPermission(
-                    title = "启用风险应用拦截",
-                    message = "首次使用前，请先开启“查看使用情况”权限。只有开启后，Clash 才能识别 TokenPocket 等风险应用是否被打开；未授权时不会启用拦截。",
+                    title = "启用应用拦截功能",
+                    message = "首次使用前，请先开启“查看使用情况”权限。授权后应用拦截功能才能识别已配置目标应用的打开状态。将优先跳转到 Clash Verge 的授权页；如果看到的是应用列表，请点开 Clash Verge 后再开启。",
                     settingsIntent = createUsageAccessSettingsIntent(),
                     checkGranted = { queryAppInterceptPermissionState().usageStatsGranted },
-                    failureMessage = "未开启“查看使用情况”权限，风险应用拦截暂未启用",
+                    failureMessage = "未开启“查看使用情况”权限，应用拦截功能暂未启用",
                 )
 
                 if (!usageGranted) {
@@ -233,11 +233,11 @@ class MainActivity : BaseActivity<MainDesign>() {
 
             if (!queryAppInterceptPermissionState().overlayGranted) {
                 val overlayGranted = requestAppInterceptPermission(
-                    title = "继续完成拦截授权",
-                    message = "还需要开启悬浮窗权限，Clash 才能在检测到风险应用时立即弹出验证框；未授权时不会启用拦截。",
+                    title = "继续完成权限设置",
+                    message = "还需要开启悬浮窗权限，应用拦截功能才能在检测到目标应用时立即弹出验证框。将优先跳转到 Clash Verge 的授权页；如果看到的是应用列表，请点开 Clash Verge 后再开启。",
                     settingsIntent = createOverlaySettingsIntent(),
                     checkGranted = { queryAppInterceptPermissionState().overlayGranted },
-                    failureMessage = "未开启悬浮窗权限，风险应用拦截暂未启用",
+                    failureMessage = "未开启悬浮窗权限，应用拦截功能暂未启用",
                 )
 
                 if (!overlayGranted) {
@@ -299,14 +299,14 @@ class MainActivity : BaseActivity<MainDesign>() {
     ): Boolean = withContext(Dispatchers.Main) {
         suspendCoroutine { continuation ->
             val title = if (permissionsReady) {
-                "风险应用拦截已启用"
+                "应用拦截功能已就绪"
             } else {
-                "首次启用风险应用拦截"
+                "首次使用请完成权限设置"
             }
             val message = if (permissionsReady) {
-                "当前安装包已启用风险应用拦截。打开 TokenPocket 等已配置风险应用时，会先弹出确认框，要求用户输入指定提示文字后才能继续使用。当前设备所需授权已就绪。"
+                "当前安装包已启用应用拦截功能，所需权限也已就绪。后续检测到已配置目标应用时，会按规则弹出验证提醒。"
             } else {
-                "当前安装包已启用风险应用拦截。打开 TokenPocket 等已配置风险应用时，会先弹出确认框，要求用户输入指定提示文字后才能继续使用。为保证拦截生效，首次使用前还需要开启“查看使用情况”和悬浮窗权限。"
+                "为确保应用拦截功能正常工作，首次使用前请先开启“查看使用情况”和“悬浮窗”权限。完成后，应用才能按规则检测已配置目标应用并弹出验证提醒。"
             }
 
             MaterialAlertDialogBuilder(this@MainActivity)
