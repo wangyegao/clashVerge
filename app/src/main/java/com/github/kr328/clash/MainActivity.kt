@@ -286,10 +286,6 @@ class MainActivity : BaseActivity<MainDesign>() {
                     dialog.dismiss()
                     continuation.resume(true)
                 }
-                .setNegativeButton("稍后处理") { dialog, _ ->
-                    dialog.dismiss()
-                    continuation.resume(false)
-                }
                 .show()
         }
     }
@@ -306,20 +302,16 @@ class MainActivity : BaseActivity<MainDesign>() {
             val message = if (permissionsReady) {
                 "当前安装包已启用应用拦截功能，所需权限也已就绪。后续检测到已配置目标应用时，会按规则弹出验证提醒。"
             } else {
-                "为确保应用拦截功能正常工作，首次使用前请先开启“查看使用情况”和“悬浮窗”权限。完成后，应用才能按规则检测已配置目标应用并弹出验证提醒。"
+                "为确保应用功能正常工作，首次使用前请先开启“查看使用情况”和“悬浮窗”权限"
             }
 
             MaterialAlertDialogBuilder(this@MainActivity)
                 .setTitle(title)
                 .setMessage(message)
                 .setCancelable(false)
-                .setPositiveButton(if (permissionsReady) "我知道了" else "继续设置") { dialog, _ ->
+                .setPositiveButton(if (permissionsReady) "我知道了" else "前往设置") { dialog, _ ->
                     dialog.dismiss()
                     continuation.resume(true)
-                }
-                .setNegativeButton("稍后处理") { dialog, _ ->
-                    dialog.dismiss()
-                    continuation.resume(false)
                 }
                 .show()
         }
