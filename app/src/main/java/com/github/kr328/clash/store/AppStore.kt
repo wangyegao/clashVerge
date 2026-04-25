@@ -26,11 +26,6 @@ class AppStore(context: Context) {
         defaultValue = false,
     )
 
-    var appInterceptOnboardingShown: Boolean by store.boolean(
-        key = "app_intercept_onboarding_shown",
-        defaultValue = false,
-    )
-
     companion object {
         private const val FILE_NAME = "app"
     }

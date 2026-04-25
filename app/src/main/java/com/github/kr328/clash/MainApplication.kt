@@ -12,6 +12,7 @@ import com.github.kr328.clash.common.constants.Intents
 import com.github.kr328.clash.common.log.Log
 import com.github.kr328.clash.design.store.UiStore
 import com.github.kr328.clash.remote.Remote
+import com.github.kr328.clash.security.ReleaseHardening
 import com.github.kr328.clash.service.util.sendServiceRecreated
 import com.github.kr328.clash.util.clashDir
 import java.io.File
@@ -33,6 +34,10 @@ class MainApplication : Application() {
         super.onCreate()
 
         val processName = currentProcessName
+        if (!ReleaseHardening.allowStartup(this, processName)) {
+            return
+        }
+
         extractGeoFiles()
 
         Log.d("Process $processName started")

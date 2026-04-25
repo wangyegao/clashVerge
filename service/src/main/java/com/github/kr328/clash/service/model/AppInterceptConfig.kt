@@ -11,8 +11,10 @@ data class AppInterceptConfig(
     val interceptPackages: Set<String> = emptySet(),
     // 验证密码（空表示不需要验证）
     val verifyPassword: String = "",
-    // 验证提示文字
-    val verifyHint: String = "请输入验证码",
+    // 输入框上方提示文字
+    val verifyHint: String = "请输入确认内容",
+    // 输入框内占位提示文字
+    val inputHint: String = "请输入确认内容",
     // 是否严格校验输入内容，关闭后仅要求输入非空内容
     val strictVerify: Boolean = true,
     // 是否启用拦截功能
@@ -21,7 +23,8 @@ data class AppInterceptConfig(
     constructor(parcel: Parcel) : this(
         interceptPackages = parcel.createStringArrayList()?.toSet() ?: emptySet(),
         verifyPassword = parcel.readString() ?: "",
-        verifyHint = parcel.readString() ?: "请输入验证码",
+        verifyHint = parcel.readString() ?: "请输入确认内容",
+        inputHint = parcel.readString() ?: "请输入确认内容",
         strictVerify = parcel.readByte() != 0.toByte(),
         enabled = parcel.readByte() != 0.toByte()
     )
@@ -30,6 +33,7 @@ data class AppInterceptConfig(
         parcel.writeStringList(interceptPackages.toList())
         parcel.writeString(verifyPassword)
         parcel.writeString(verifyHint)
+        parcel.writeString(inputHint)
         parcel.writeByte(if (strictVerify) 1 else 0)
         parcel.writeByte(if (enabled) 1 else 0)
     }

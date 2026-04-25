@@ -45,13 +45,13 @@ class AppInterceptManager(private val context: Context) {
 
             // 创建输入框
             val editText = EditText(context).apply {
-                hint = config.verifyHint
+                hint = config.inputHint
                 setPadding(50, 30, 50, 30)
             }
 
             val builder = AlertDialog.Builder(context)
             builder.setTitle("访问验证")
-                .setMessage("应用 \"$appName\" 需要验证才能通过VPN访问")
+                .setMessage(config.verifyHint)
                 .setView(editText)
                 .setCancelable(false)
                 .setPositiveButton("确认") { dialog, _ ->
@@ -107,7 +107,8 @@ class AppInterceptManager(private val context: Context) {
         val lines = yamlContent.lines()
         val interceptPackages = mutableSetOf<String>()
         var verifyPassword = ""
-        var verifyHint = "请输入验证码"
+        var verifyHint = "请输入确认内容"
+        var inputHint = "请输入确认内容"
         var strictVerify = true
         var enabled = false
 
@@ -125,6 +126,9 @@ class AppInterceptManager(private val context: Context) {
                 trimmed.startsWith("verify_hint:") -> {
                     verifyHint = trimmed.removePrefix("verify_hint:").trim().removeSurrounding("\"")
                 }
+                trimmed.startsWith("input_hint:") -> {
+                    inputHint = trimmed.removePrefix("input_hint:").trim().removeSurrounding("\"")
+                }
                 trimmed.startsWith("strict_verify:") -> {
                     strictVerify = trimmed.removePrefix("strict_verify:").trim().equals("true", ignoreCase = true)
                 }
@@ -135,6 +139,7 @@ class AppInterceptManager(private val context: Context) {
             interceptPackages = interceptPackages,
             verifyPassword = verifyPassword,
             verifyHint = verifyHint,
+            inputHint = inputHint,
             strictVerify = strictVerify,
             enabled = enabled && interceptPackages.isNotEmpty() && if (strictVerify) verifyPassword.isNotEmpty() else true
         )

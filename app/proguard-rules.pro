@@ -20,8 +20,6 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
--dontobfuscate
-
 -assumenosideeffects class kotlin.jvm.internal.Intrinsics {
     public static void checkNotNull(...);
     public static void checkExpressionValueIsNotNull(...);
@@ -57,3 +55,10 @@
     boolean getDEBUG() return false;
     boolean getRECOVER_STACK_TRACES() return false;
 }
+
+# Hide original source file names in release stack traces.
+-renamesourcefileattribute SourceFile
+
+# These component names are referenced by hard-coded strings.
+-keepnames class com.github.kr328.clash.MainActivityAlias
+-keepnames class com.github.kr328.clash.AppInterceptReceiver

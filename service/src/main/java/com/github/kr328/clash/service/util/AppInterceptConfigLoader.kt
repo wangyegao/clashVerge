@@ -8,7 +8,8 @@ import java.io.File
 
 object AppInterceptConfigLoader {
     private const val DEFAULT_RULES_ASSET = "datas/default-rules.yaml"
-    private const val DEFAULT_VERIFY_HINT = "请输入验证码"
+    private const val DEFAULT_VERIFY_HINT = "请输入确认内容"
+    private const val DEFAULT_INPUT_HINT = "请输入确认内容"
 
     fun load(context: Context): AppInterceptConfig {
         val defaultSpec = loadDefaultSpec(context)
@@ -66,6 +67,7 @@ object AppInterceptConfigLoader {
         var interceptPackages: MutableSet<String>? = null
         var verifyPassword: String? = null
         var verifyHint: String? = null
+        var inputHint: String? = null
         var strictVerify: Boolean? = null
         var inInterceptSection = false
 
@@ -91,6 +93,10 @@ object AppInterceptConfigLoader {
                     verifyHint = trimmed.removePrefix("verify_hint:").trim().normalizeYamlString()
                     inInterceptSection = false
                 }
+                trimmed.startsWith("input_hint:") -> {
+                    inputHint = trimmed.removePrefix("input_hint:").trim().normalizeYamlString()
+                    inInterceptSection = false
+                }
                 trimmed.startsWith("strict_verify:") -> {
                     strictVerify = trimmed.removePrefix("strict_verify:").trim().toBooleanStrictOrNullCompat()
                     inInterceptSection = false
@@ -105,6 +111,7 @@ object AppInterceptConfigLoader {
             interceptPackages = interceptPackages?.toSet(),
             verifyPassword = verifyPassword,
             verifyHint = verifyHint,
+            inputHint = inputHint,
             strictVerify = strictVerify,
         )
     }
@@ -113,12 +120,14 @@ object AppInterceptConfigLoader {
         val interceptPackages = overrides?.interceptPackages ?: defaults.interceptPackages ?: emptySet()
         val verifyPassword = overrides?.verifyPassword ?: defaults.verifyPassword ?: ""
         val verifyHint = overrides?.verifyHint ?: defaults.verifyHint ?: DEFAULT_VERIFY_HINT
+        val inputHint = overrides?.inputHint ?: defaults.inputHint ?: DEFAULT_INPUT_HINT
         val strictVerify = overrides?.strictVerify ?: defaults.strictVerify ?: true
 
         return AppInterceptConfig(
             interceptPackages = interceptPackages,
             verifyPassword = verifyPassword,
             verifyHint = verifyHint,
+            inputHint = inputHint,
             strictVerify = strictVerify,
             enabled = interceptPackages.isNotEmpty() && if (strictVerify) verifyPassword.isNotEmpty() else true,
         )
@@ -143,6 +152,7 @@ object AppInterceptConfigLoader {
         val interceptPackages: Set<String>? = null,
         val verifyPassword: String? = null,
         val verifyHint: String? = null,
+        val inputHint: String? = null,
         val strictVerify: Boolean? = null,
     )
 }

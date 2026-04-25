@@ -1,6 +1,7 @@
 package com.github.kr328.clash.service.util
 
 import android.app.AppOpsManager
+import android.app.usage.UsageStatsManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -23,18 +24,47 @@ data class AppInterceptPermissionState(
 }
 
 fun Context.queryAppInterceptPermissionState(): AppInterceptPermissionState {
-    val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-    val usageStatsGranted = appOps.checkOpNoThrow(
-        AppOpsManager.OPSTR_GET_USAGE_STATS,
-        android.os.Process.myUid(),
-        packageName,
-    ) == AppOpsManager.MODE_ALLOWED
-
     return AppInterceptPermissionState(
-        usageStatsGranted = usageStatsGranted,
+        usageStatsGranted = hasUsageStatsPermission(),
         overlayGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this),
         notificationsGranted = NotificationManagerCompat.from(this).areNotificationsEnabled(),
     )
+}
+
+private fun Context.hasUsageStatsPermission(): Boolean {
+    val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+    val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        appOps.unsafeCheckOpNoThrow(
+            AppOpsManager.OPSTR_GET_USAGE_STATS,
+            android.os.Process.myUid(),
+            packageName,
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        appOps.checkOpNoThrow(
+            AppOpsManager.OPSTR_GET_USAGE_STATS,
+            android.os.Process.myUid(),
+            packageName,
+        )
+    }
+
+    if (mode == AppOpsManager.MODE_ALLOWED) {
+        return true
+    }
+
+    if (mode != AppOpsManager.MODE_DEFAULT) {
+        return false
+    }
+
+    val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+    val endTime = System.currentTimeMillis()
+    val startTime = endTime - 24L * 60L * 60L * 1000L
+
+    return runCatching {
+        usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
+            .orEmpty()
+            .isNotEmpty()
+    }.getOrDefault(false)
 }
 
 fun Context.createUsageAccessSettingsIntent(): Intent {

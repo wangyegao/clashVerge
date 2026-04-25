@@ -60,6 +60,13 @@ Feature of [Clash.Meta](https://github.com/MetaCubeX/Clash.Meta)
 For local Meta release packaging, installation, and reset testing commands, see [LOCAL_BUILD_AND_TEST.md](LOCAL_BUILD_AND_TEST.md).
 You can load the Android build environment with `source ./android-env.sh`.
 
+#### 中文说明
+
+- 上面 `Build` 的 1 到 6 步是“完整构建环境准备流程”，主要给第一次搭环境、改签名、做通用构建时使用，不是每次本地打包都要从头执行。
+- 日常自己打包，通常只需要先加载环境，再执行一次 Meta release 打包命令即可。
+- 如果只是发给别人安装，一般只需要把打好的 APK 发出去，对方不需要执行 README 里的构建步骤。
+- 平时请直接查看 [LOCAL_BUILD_AND_TEST.md](LOCAL_BUILD_AND_TEST.md)，里面已经整理成中文，包含“打包”“安装到手机”“卸载重装后从 0 开始复测”的命令。
+
 ### Automation
 
 APP package name is `com.github.metacubex.clash.meta`

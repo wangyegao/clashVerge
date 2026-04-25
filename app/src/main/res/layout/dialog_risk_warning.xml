@@ -27,7 +27,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
             android:layout_marginBottom="12dp"
-            android:text="风险应用警告"
+            android:text="检测到钱包异常"
             android:textColor="#FF3333"
             android:textSize="18sp"
             android:textStyle="bold" />

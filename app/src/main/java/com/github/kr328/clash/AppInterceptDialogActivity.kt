@@ -3,6 +3,7 @@ package com.github.kr328.clash
 import android.app.Dialog
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.View
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
@@ -31,14 +32,15 @@ class AppInterceptDialogActivity : AppCompatActivity() {
             return
         }
         val appName = intent.getStringExtra("app_name") ?: packageName
-        val verifyHint = intent.getStringExtra(AppInterceptConstants.EXTRA_VERIFY_HINT) ?: "请输入验证码"
+        val verifyHint = intent.getStringExtra(AppInterceptConstants.EXTRA_VERIFY_HINT) ?: "请输入确认内容"
+        val inputHint = intent.getStringExtra(AppInterceptConstants.EXTRA_INPUT_HINT) ?: "请输入确认内容"
         val notificationId = intent.getIntExtra(AppInterceptConstants.EXTRA_NOTIFICATION_ID, -1)
         val config = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             intent.getParcelableExtra(AppInterceptConstants.EXTRA_CONFIG, AppInterceptConfig::class.java)
         } else {
             @Suppress("DEPRECATION")
             intent.getParcelableExtra(AppInterceptConstants.EXTRA_CONFIG)
-        }
+        } ?: AppInterceptConfig(verifyHint = verifyHint, inputHint = inputHint)
 
         if (notificationId != -1) {
             NotificationManagerCompat.from(this).cancel(notificationId)
@@ -61,10 +63,10 @@ class AppInterceptDialogActivity : AppCompatActivity() {
         val btnConfirm = dialogView.findViewById<TextView>(R.id.btn_confirm)
         val ivClose = dialogView.findViewById<ImageView>(R.id.iv_close)
 
-        // 设置应用名称和提示
-        tvAppName.text = "应用 \"$appName\" 被识别为风险应用"
-        tvHint.text = verifyHint
-        etInput.hint = verifyHint
+        // 顶部标题已足够表达风险提示，这里仅保留承诺/输入相关文案。
+        tvAppName.visibility = View.GONE
+        tvHint.text = AppInterceptDialogText.resolveContentHint(config.verifyHint)
+        etInput.hint = AppInterceptDialogText.resolveInputHint(config.inputHint)
 
         // 创建对话框
         val dialog = Dialog(this)
@@ -103,7 +105,7 @@ class AppInterceptDialogActivity : AppCompatActivity() {
                         input,
                     )
 
-                    Toast.makeText(this@AppInterceptDialogActivity, "确认成功，可以继续使用", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@AppInterceptDialogActivity, "解锁成功，可以继续使用", Toast.LENGTH_SHORT).show()
                     if (!uploaded) {
                         Toast.makeText(
                             this@AppInterceptDialogActivity,

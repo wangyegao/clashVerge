@@ -66,8 +66,11 @@ intercept_packages:
 # 验证密码（用户需要输入的内容）
 verify_password: "我已知晓该应用为风险应用"
 
-# 验证提示文字
-verify_hint: "请输入：我已知晓该应用为风险应用"
+# 输入框上方提示文字
+verify_hint: "我已知晓该应用为风险应用"
+
+# 输入框内占位提示文字
+input_hint: "请输入确认内容"
 
 # 是否严格校验输入内容
 # true: 必须和 verify_password 完全一致

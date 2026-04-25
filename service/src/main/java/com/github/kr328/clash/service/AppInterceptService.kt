@@ -255,6 +255,7 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
         val intent = Intent(AppInterceptConstants.ACTION_APP_INTERCEPT_REQUIRED).apply {
             putExtra(AppInterceptConstants.EXTRA_PACKAGE_NAME, packageName)
             putExtra(AppInterceptConstants.EXTRA_VERIFY_HINT, config.verifyHint)
+            putExtra(AppInterceptConstants.EXTRA_INPUT_HINT, config.inputHint)
             putExtra(AppInterceptConstants.EXTRA_CONFIG, config)
             setPackage(this@AppInterceptService.packageName)
             addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)

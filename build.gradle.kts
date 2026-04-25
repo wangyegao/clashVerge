@@ -2,7 +2,10 @@
 
 import com.android.build.gradle.AppExtension
 import com.android.build.gradle.BaseExtension
+import java.io.File
 import java.net.URL
+import java.security.KeyStore
+import java.security.MessageDigest
 import java.util.*
 
 buildscript {
@@ -28,6 +31,61 @@ subprojects {
     }
 
     val isApp = name == "app"
+    val expectedSignerSha256 = if (isApp) {
+        fun loadKeyStore(storeFile: File, password: CharArray): KeyStore {
+            return sequenceOf("JKS", "PKCS12")
+                .mapNotNull { type ->
+                    runCatching {
+                        KeyStore.getInstance(type).apply {
+                            storeFile.inputStream().use { load(it, password) }
+                        }
+                    }.getOrNull()
+                }
+                .firstOrNull()
+                ?: error("Unable to load keystore: ${storeFile.absolutePath}")
+        }
+
+        fun resolveSignerSha256(): String {
+            val releasePropertiesFile = rootProject.file("signing.properties")
+            val releaseKeystoreFile = rootProject.file("release.keystore")
+
+            val (storeFile, storePassword, keyAlias) = if (releasePropertiesFile.exists() && releaseKeystoreFile.exists()) {
+                val properties = Properties().apply {
+                    releasePropertiesFile.inputStream().use(this::load)
+                }
+
+                Triple(
+                    releaseKeystoreFile,
+                    properties.getProperty("keystore.password") ?: error("Missing keystore.password"),
+                    properties.getProperty("key.alias") ?: error("Missing key.alias"),
+                )
+            } else {
+                Triple(
+                    File(System.getProperty("user.home"), ".android/debug.keystore"),
+                    "android",
+                    "androiddebugkey",
+                )
+            }
+
+            require(storeFile.exists()) {
+                "Signing keystore not found: ${storeFile.absolutePath}"
+            }
+
+            val certificate = requireNotNull(
+                loadKeyStore(storeFile, storePassword.toCharArray()).getCertificate(keyAlias)
+            ) {
+                "Signing certificate not found for alias $keyAlias"
+            }
+
+            return MessageDigest.getInstance("SHA-256")
+                .digest(certificate.encoded)
+                .joinToString(":") { "%02X".format(it) }
+        }
+
+        resolveSignerSha256()
+    } else {
+        ""
+    }
 
     apply(plugin = if (isApp) "com.android.application" else "com.android.library")
 
@@ -164,6 +222,10 @@ subprojects {
                 isMinifyEnabled = isApp
                 isShrinkResources = isApp
                 signingConfig = signingConfigs.findByName("release") ?: signingConfigs["debug"]
+                if (isApp) {
+                    buildConfigField("boolean", "HARDENING_ENABLED", "true")
+                    buildConfigField("String", "EXPECTED_SIGNER_SHA256", "\"$expectedSignerSha256\"")
+                }
                 proguardFiles(
                     getDefaultProguardFile("proguard-android-optimize.txt"),
                     "proguard-rules.pro"
@@ -171,6 +233,10 @@ subprojects {
             }
             named("debug") {
                 versionNameSuffix = ".debug"
+                if (isApp) {
+                    buildConfigField("boolean", "HARDENING_ENABLED", "false")
+                    buildConfigField("String", "EXPECTED_SIGNER_SHA256", "\"\"")
+                }
             }
         }
 

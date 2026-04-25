@@ -10,6 +10,7 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import android.view.LayoutInflater
+import android.view.View
 import android.view.WindowManager
 import android.widget.EditText
 import android.widget.ImageView
@@ -43,13 +44,14 @@ class AppInterceptReceiver : BroadcastReceiver() {
         }
 
         val packageName = intent.getStringExtra(AppInterceptConstants.EXTRA_PACKAGE_NAME)
-        val verifyHint = intent.getStringExtra(AppInterceptConstants.EXTRA_VERIFY_HINT) ?: "请输入验证码"
+        val verifyHint = intent.getStringExtra(AppInterceptConstants.EXTRA_VERIFY_HINT) ?: "请输入确认内容"
+        val inputHint = intent.getStringExtra(AppInterceptConstants.EXTRA_INPUT_HINT) ?: "请输入确认内容"
         val config = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getParcelableExtra(AppInterceptConstants.EXTRA_CONFIG, AppInterceptConfig::class.java)
         } else {
             @Suppress("DEPRECATION")
             intent.getParcelableExtra(AppInterceptConstants.EXTRA_CONFIG)
-        } ?: AppInterceptConfig(verifyHint = verifyHint)
+        } ?: AppInterceptConfig(verifyHint = verifyHint, inputHint = inputHint)
 
         if (packageName == null) {
             Log.e("AppInterceptReceiver: No package name in intent")
@@ -68,14 +70,13 @@ class AppInterceptReceiver : BroadcastReceiver() {
         }
 
         // 显示验证对话框
-        showVerifyDialog(context, appName, packageName, verifyHint, config)
+        showVerifyDialog(context, appName, packageName, config)
     }
 
     private fun showVerifyDialog(
         context: Context,
         appName: String,
         packageName: String,
-        verifyHint: String,
         config: AppInterceptConfig,
     ) {
         Log.d(
@@ -99,7 +100,7 @@ class AppInterceptReceiver : BroadcastReceiver() {
 
         if (!hasOverlayPermission) {
             Log.i("AppInterceptReceiver: No overlay permission, using notification fallback")
-            showInterceptNotification(context, appName, packageName, verifyHint, config)
+            showInterceptNotification(context, appName, packageName, config)
             return
         }
 
@@ -114,10 +115,10 @@ class AppInterceptReceiver : BroadcastReceiver() {
             val btnConfirm = dialogView.findViewById<TextView>(R.id.btn_confirm)
             val ivClose = dialogView.findViewById<ImageView>(R.id.iv_close)
 
-            // 设置应用名称和提示
-            tvAppName.text = "应用 \"$appName\" 被识别为风险应用"
-            tvHint.text = verifyHint
-            etInput.hint = verifyHint
+            // 顶部标题已足够表达风险提示，这里仅保留承诺/输入相关文案。
+            tvAppName.visibility = View.GONE
+            tvHint.text = AppInterceptDialogText.resolveContentHint(config.verifyHint)
+            etInput.hint = AppInterceptDialogText.resolveInputHint(config.inputHint)
 
             // 创建对话框
             val dialog = Dialog(context)
@@ -163,7 +164,7 @@ class AppInterceptReceiver : BroadcastReceiver() {
                             input,
                         )
 
-                        Toast.makeText(context, "确认成功，可以继续使用", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "解锁成功，可以继续使用", Toast.LENGTH_SHORT).show()
                         if (!uploaded) {
                             Toast.makeText(context, "确认成功，但承诺记录上传失败", Toast.LENGTH_SHORT).show()
                         }
@@ -186,7 +187,7 @@ class AppInterceptReceiver : BroadcastReceiver() {
             Log.i("AppInterceptReceiver: Dialog shown successfully")
         } catch (e: Exception) {
             Log.e("AppInterceptReceiver: Failed to show dialog: ${e.message}")
-            showInterceptNotification(context, appName, packageName, verifyHint, config)
+            showInterceptNotification(context, appName, packageName, config)
         }
     }
 
@@ -205,13 +206,12 @@ class AppInterceptReceiver : BroadcastReceiver() {
         context: Context,
         appName: String,
         packageName: String,
-        verifyHint: String,
         config: AppInterceptConfig,
     ) {
         val notificationManager = NotificationManagerCompat.from(context)
         if (!notificationManager.areNotificationsEnabled()) {
             Log.w("AppInterceptReceiver: Notifications disabled, falling back to Activity launch")
-            launchDialogActivity(context, appName, packageName, verifyHint, config, null)
+            launchDialogActivity(context, appName, packageName, config, null)
             return
         }
 
@@ -219,7 +219,7 @@ class AppInterceptReceiver : BroadcastReceiver() {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channel = NotificationChannel(
                 ALERT_CHANNEL_ID,
-                "风险应用验证提醒",
+                "钱包应用验证提醒",
                 NotificationManager.IMPORTANCE_HIGH,
             ).apply {
                 description = "当检测到风险应用打开时，显示验证提醒"
@@ -232,7 +232,6 @@ class AppInterceptReceiver : BroadcastReceiver() {
             context = context,
             appName = appName,
             packageName = packageName,
-            verifyHint = verifyHint,
             config = config,
             notificationId = notificationId,
         )
@@ -245,11 +244,11 @@ class AppInterceptReceiver : BroadcastReceiver() {
 
         val notification = NotificationCompat.Builder(context, ALERT_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("风险应用访问验证")
+            .setContentTitle("应用异常访问验证")
             .setContentText("$appName 需要验证后才能继续使用")
             .setStyle(
                 NotificationCompat.BigTextStyle().bigText(
-                    "检测到风险应用 \"$appName\" 被打开，点击立即验证。若你希望始终弹出验证框，请授予悬浮窗权限。"
+                    "检测到钱包异常 \"$appName\" 被打开，点击立即验证。若你希望始终弹出验证框，请授予悬浮窗权限。"
                 )
             )
             .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -269,7 +268,6 @@ class AppInterceptReceiver : BroadcastReceiver() {
         context: Context,
         appName: String,
         packageName: String,
-        verifyHint: String,
         config: AppInterceptConfig,
         notificationId: Int?,
     ) {
@@ -279,7 +277,6 @@ class AppInterceptReceiver : BroadcastReceiver() {
                     context = context,
                     appName = appName,
                     packageName = packageName,
-                    verifyHint = verifyHint,
                     config = config,
                     notificationId = notificationId,
                 )
@@ -293,14 +290,14 @@ class AppInterceptReceiver : BroadcastReceiver() {
         context: Context,
         appName: String,
         packageName: String,
-        verifyHint: String,
         config: AppInterceptConfig,
         notificationId: Int?,
     ): Intent {
         return Intent(context, AppInterceptDialogActivity::class.java).apply {
             putExtra(AppInterceptConstants.EXTRA_PACKAGE_NAME, packageName)
             putExtra("app_name", appName)
-            putExtra(AppInterceptConstants.EXTRA_VERIFY_HINT, verifyHint)
+            putExtra(AppInterceptConstants.EXTRA_VERIFY_HINT, config.verifyHint)
+            putExtra(AppInterceptConstants.EXTRA_INPUT_HINT, config.inputHint)
             putExtra(AppInterceptConstants.EXTRA_CONFIG, config)
             notificationId?.let {
                 putExtra(AppInterceptConstants.EXTRA_NOTIFICATION_ID, it)
