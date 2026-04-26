@@ -74,12 +74,14 @@ class AppInterceptDialogActivity : AppCompatActivity() {
         tvAppName.visibility = View.GONE
         tvHint.text = AppInterceptDialogText.resolveContentHint(config.verifyHint)
         etInput.hint = AppInterceptDialogText.resolveInputHint(config.inputHint)
+        AppInterceptDialogInputControl.prepareForManualFocus(etInput, btnConfirm)
 
         // 创建对话框
         val dialog = Dialog(this)
         dialog.setContentView(dialogView)
         dialog.setCancelable(false)
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        AppInterceptDialogInputControl.suppressAutoKeyboard(dialog.window)
 
         // 设置窗口大小
         dialog.window?.setLayout(
@@ -104,7 +106,6 @@ class AppInterceptDialogActivity : AppCompatActivity() {
                     anchorView = etInput,
                     icon = targetAppIcon,
                 )
-                etInput.requestFocus()
                 return@setOnClickListener
             }
 
@@ -147,8 +148,9 @@ class AppInterceptDialogActivity : AppCompatActivity() {
                     btnConfirm.text = "确认"
                     ivClose.isEnabled = true
                     etInput.isEnabled = true
-                    etInput.requestFocus()
-                    etInput.setSelection(etInput.text.length)
+                    if (etInput.hasFocus()) {
+                        etInput.setSelection(etInput.text.length)
+                    }
                 }
             }
         }
@@ -158,6 +160,7 @@ class AppInterceptDialogActivity : AppCompatActivity() {
         }
 
         dialog.show()
+        AppInterceptDialogInputControl.clearFocus(etInput, btnConfirm)
     }
 
     private fun resolveTargetAppIcon(packageName: String): Drawable? {

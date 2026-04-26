@@ -16,4 +16,9 @@ class AppInterceptStore(context: Context) {
         key = "app_intercept_verified_packages",
         defaultValue = emptySet(),
     )
+
+    var packageLastUpdateTime by store.long(
+        key = "app_intercept_package_last_update_time",
+        defaultValue = 0L,
+    )
 }

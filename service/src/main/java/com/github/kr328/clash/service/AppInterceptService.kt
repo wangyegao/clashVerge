@@ -44,6 +44,7 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
     override fun onCreate() {
         super.onCreate()
         appInterceptStore = AppInterceptStore(this)
+        resetVerifiedPackagesIfAppUpdated()
         verifiedPackages.addAll(appInterceptStore.verifiedPackages)
         val permissionState = queryAppInterceptPermissionState()
         hasUsageStatsPermission = permissionState.usageStatsGranted
@@ -106,6 +107,32 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
         cancel()
         Log.i("AppInterceptService destroyed")
         super.onDestroy()
+    }
+
+    private fun resetVerifiedPackagesIfAppUpdated() {
+        val currentUpdateTime = runCatching {
+            packageManager.getPackageInfo(packageName, 0).lastUpdateTime
+        }.getOrElse {
+            Log.w("AppInterceptService: Failed to read package lastUpdateTime", it)
+            return
+        }
+
+        val storedUpdateTime = appInterceptStore.packageLastUpdateTime
+        val storedVerifiedPackages = appInterceptStore.verifiedPackages
+        val shouldResetVerifiedPackages =
+            (storedUpdateTime == 0L && storedVerifiedPackages.isNotEmpty()) ||
+                (storedUpdateTime != 0L && storedUpdateTime != currentUpdateTime)
+
+        if (shouldResetVerifiedPackages) {
+            appInterceptStore.verifiedPackages = emptySet()
+            Log.w(
+                "AppInterceptService: Cleared verified packages after APK update " +
+                    "(stored=$storedUpdateTime, current=$currentUpdateTime, " +
+                    "cleared=${storedVerifiedPackages.size})"
+            )
+        }
+
+        appInterceptStore.packageLastUpdateTime = currentUpdateTime
     }
 
     private fun createNotificationChannel() {
@@ -229,6 +256,12 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
             if (currentApp != null && currentApp != lastForegroundPackage) {
                 lastForegroundPackage = currentApp
                 Log.d("AppInterceptService: Foreground app changed to $currentApp")
+                if (currentApp in config.interceptPackages) {
+                    Log.w(
+                        "AppInterceptService: Foreground risk app detected=$currentApp, " +
+                            "verified=${currentApp in verifiedPackages}, overlay=$lastOverlayPermission"
+                    )
+                }
 
                 // 检查是否需要拦截
                 if (shouldIntercept(currentApp)) {
@@ -242,10 +275,19 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
     }
 
     private fun shouldIntercept(packageName: String): Boolean {
-        if (!config.enabled) return false
+        if (!config.enabled) {
+            Log.w("AppInterceptService: Skip intercept for $packageName because config is disabled")
+            return false
+        }
         if (packageName !in config.interceptPackages) return false
-        if (packageName in verifiedPackages) return false
-        if (packageName == this.packageName) return false // 不拦截自己
+        if (packageName in verifiedPackages) {
+            Log.w("AppInterceptService: Skip intercept for $packageName because it is already verified")
+            return false
+        }
+        if (packageName == this.packageName) {
+            Log.w("AppInterceptService: Skip intercept for $packageName because it is self package")
+            return false // 不拦截自己
+        }
         return true
     }
 
@@ -262,6 +304,7 @@ class AppInterceptService : Service(), CoroutineScope by CoroutineScope(Dispatch
             // 设置接收器的类名，使其成为显式广播
             setClassName(this@AppInterceptService.packageName, "com.github.kr328.clash.AppInterceptReceiver")
         }
+        Log.w("AppInterceptService: Sending intercept broadcast for $packageName")
         sendBroadcast(intent)
         Log.i("AppInterceptService: Broadcast sent for $packageName")
     }

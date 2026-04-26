@@ -63,12 +63,6 @@ class AccessControlMenu(
 
                 requests.trySend(Request.ReloadApps)
             }
-            R.id.import_from_clipboard -> {
-                requests.trySend(Request.Import)
-            }
-            R.id.export_to_clipboard -> {
-                requests.trySend(Request.Export)
-            }
             else -> return false
         }
 

@@ -24,8 +24,6 @@ class AccessControlDesign(
         SelectAll,
         SelectNone,
         SelectInvert,
-        Import,
-        Export,
     }
 
     private val binding = DesignAccessControlBinding

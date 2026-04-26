@@ -1,12 +1,9 @@
 package com.github.kr328.clash
 
 import android.Manifest.permission.INTERNET
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
-import androidx.core.content.getSystemService
 import com.github.kr328.clash.design.AccessControlDesign
 import com.github.kr328.clash.design.model.AppInfo
 import com.github.kr328.clash.design.util.toAppInfo
@@ -86,31 +83,6 @@ class AccessControlActivity : BaseActivity<AccessControlDesign>() {
                             design.rebindAll()
                         }
 
-                        AccessControlDesign.Request.Import -> {
-                            val clipboard = getSystemService<ClipboardManager>()
-                            val data = clipboard?.primaryClip
-
-                            if (data != null && data.itemCount > 0) {
-                                val packages = data.getItemAt(0).text.split("\n").toSet()
-                                val all = design.apps.map(AppInfo::packageName).intersect(packages)
-
-                                selected.clear()
-                                selected.addAll(all)
-                            }
-
-                            design.rebindAll()
-                        }
-
-                        AccessControlDesign.Request.Export -> {
-                            val clipboard = getSystemService<ClipboardManager>()
-
-                            val data = ClipData.newPlainText(
-                                "packages",
-                                selected.joinToString("\n")
-                            )
-
-                            clipboard?.setPrimaryClip(data)
-                        }
                     }
                 }
             }

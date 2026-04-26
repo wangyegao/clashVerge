@@ -42,15 +42,4 @@
                 android:title="@string/reverse" />
         </menu>
     </item>
-
-    <item android:title="@string/external">
-        <menu>
-            <item
-                android:id="@+id/import_from_clipboard"
-                android:title="@string/import_from_clipboard" />
-            <item
-                android:id="@+id/export_to_clipboard"
-                android:title="@string/export_to_clipboard" />
-        </menu>
-    </item>
 </menu>

@@ -9,7 +9,6 @@ import com.github.kr328.clash.design.util.layoutInflater
 
 class LogMessageAdapter(
     private val context: Context,
-    private val copy: (LogMessage) -> Unit,
 ) :
     RecyclerView.Adapter<LogMessageAdapter.Holder>() {
     class Holder(val binding: AdapterLogMessageBinding) : RecyclerView.ViewHolder(binding.root)
@@ -27,11 +26,7 @@ class LogMessageAdapter(
         val current = messages[position]
 
         holder.binding.message = current
-        holder.binding.root.setOnLongClickListener {
-            copy(current)
-
-            true
-        }
+        holder.binding.root.setOnLongClickListener(null)
     }
 
     override fun getItemCount(): Int {

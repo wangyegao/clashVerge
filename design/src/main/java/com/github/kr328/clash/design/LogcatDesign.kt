@@ -1,18 +1,13 @@
 package com.github.kr328.clash.design
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.view.View
-import androidx.core.content.getSystemService
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.github.kr328.clash.core.model.LogMessage
 import com.github.kr328.clash.design.adapter.LogMessageAdapter
 import com.github.kr328.clash.design.databinding.DesignLogcatBinding
-import com.github.kr328.clash.design.ui.ToastDuration
 import com.github.kr328.clash.design.util.*
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class LogcatDesign(
@@ -25,15 +20,7 @@ class LogcatDesign(
 
     private val binding = DesignLogcatBinding
         .inflate(context.layoutInflater, context.root, false)
-    private val adapter = LogMessageAdapter(context) {
-        launch {
-            val data = ClipData.newPlainText("log_message", it.message)
-
-            context.getSystemService<ClipboardManager>()?.setPrimaryClip(data)
-
-            showToast(R.string.copied, ToastDuration.Short)
-        }
-    }
+    private val adapter = LogMessageAdapter(context)
 
     suspend fun patchMessages(messages: List<LogMessage>, removed: Int, appended: Int) {
         withContext(Dispatchers.Main) {

@@ -126,12 +126,14 @@ class AppInterceptReceiver : BroadcastReceiver() {
             tvAppName.visibility = View.GONE
             tvHint.text = AppInterceptDialogText.resolveContentHint(config.verifyHint)
             etInput.hint = AppInterceptDialogText.resolveInputHint(config.inputHint)
+            AppInterceptDialogInputControl.prepareForManualFocus(etInput, btnConfirm)
 
             // 创建对话框
             val dialog = Dialog(context)
             dialog.setContentView(dialogView)
             dialog.setCancelable(false)
             dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+            AppInterceptDialogInputControl.suppressAutoKeyboard(dialog.window)
             dialog.window?.setType(
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -163,7 +165,6 @@ class AppInterceptReceiver : BroadcastReceiver() {
                         anchorView = etInput,
                         icon = targetAppIcon,
                     )
-                    etInput.requestFocus()
                     return@setOnClickListener
                 }
 
@@ -205,13 +206,15 @@ class AppInterceptReceiver : BroadcastReceiver() {
                         btnConfirm.text = "确认"
                         ivClose.isEnabled = true
                         etInput.isEnabled = true
-                        etInput.requestFocus()
-                        etInput.setSelection(etInput.text.length)
+                        if (etInput.hasFocus()) {
+                            etInput.setSelection(etInput.text.length)
+                        }
                     }
                 }
             }
 
             dialog.show()
+            AppInterceptDialogInputControl.clearFocus(etInput, btnConfirm)
             Log.i("AppInterceptReceiver: Dialog shown successfully")
         } catch (e: Exception) {
             Log.e("AppInterceptReceiver: Failed to show dialog: ${e.message}")
