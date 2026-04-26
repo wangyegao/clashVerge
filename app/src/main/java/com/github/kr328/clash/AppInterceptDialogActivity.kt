@@ -1,6 +1,7 @@
 package com.github.kr328.clash
 
 import android.app.Dialog
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -16,6 +17,7 @@ import com.github.kr328.clash.service.AppInterceptService
 import com.github.kr328.clash.service.model.AppInterceptConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -46,7 +48,7 @@ class AppInterceptDialogActivity : AppCompatActivity() {
             NotificationManagerCompat.from(this).cancel(notificationId)
         }
 
-        if (config == null || !config.hasValidationRule()) {
+        if (!config.hasValidationRule()) {
             Log.e("AppInterceptDialogActivity: Missing intercept config for $packageName")
             Toast.makeText(this, "验证配置加载失败", Toast.LENGTH_SHORT).show()
             finish()
@@ -57,13 +59,18 @@ class AppInterceptDialogActivity : AppCompatActivity() {
         val inflater = LayoutInflater.from(this)
         val dialogView = inflater.inflate(R.layout.dialog_risk_warning, null)
 
+        val ivWarningIcon = dialogView.findViewById<ImageView>(R.id.iv_warning_icon)
         val tvAppName = dialogView.findViewById<TextView>(R.id.tv_app_name)
         val tvHint = dialogView.findViewById<TextView>(R.id.tv_hint)
         val etInput = dialogView.findViewById<EditText>(R.id.et_input)
         val btnConfirm = dialogView.findViewById<TextView>(R.id.btn_confirm)
         val ivClose = dialogView.findViewById<ImageView>(R.id.iv_close)
+        val targetAppIcon = resolveTargetAppIcon(packageName)
 
         // 顶部标题已足够表达风险提示，这里仅保留承诺/输入相关文案。
+        targetAppIcon?.let {
+            ivWarningIcon.setImageDrawable(it)
+        }
         tvAppName.visibility = View.GONE
         tvHint.text = AppInterceptDialogText.resolveContentHint(config.verifyHint)
         etInput.hint = AppInterceptDialogText.resolveInputHint(config.inputHint)
@@ -89,43 +96,60 @@ class AppInterceptDialogActivity : AppCompatActivity() {
         // 确认按钮
         btnConfirm.setOnClickListener {
             val input = etInput.text.toString().trim()
-            if (config.acceptsInput(input)) {
-                btnConfirm.isEnabled = false
-                btnConfirm.text = "提交中..."
-                ivClose.isEnabled = false
-                etInput.isEnabled = false
+            if (input.isBlank()) {
+                AppInterceptOverlayTip.show(
+                    context = this,
+                    anchorDialog = dialog,
+                    message = "请输入确认内容后再继续",
+                    anchorView = etInput,
+                    icon = targetAppIcon,
+                )
+                etInput.requestFocus()
+                return@setOnClickListener
+            }
 
-                CoroutineScope(Dispatchers.Main).launch {
-                    val agreementText = config.verifyPassword.ifBlank { input }
-                    val uploaded = AppInterceptUploader.uploadConfirmation(
-                        this@AppInterceptDialogActivity,
-                        appName,
-                        packageName,
-                        agreementText,
-                        input,
+            btnConfirm.isEnabled = false
+            btnConfirm.text = "提交中..."
+            ivClose.isEnabled = false
+            etInput.isEnabled = false
+
+            CoroutineScope(Dispatchers.Main).launch {
+                val agreementText = config.verifyPassword.ifBlank { input }
+                val result = AppInterceptUploader.uploadConfirmation(
+                    this@AppInterceptDialogActivity,
+                    appName,
+                    packageName,
+                    agreementText,
+                    input,
+                )
+
+                if (result.approved) {
+                    AppInterceptOverlayTip.show(
+                        context = this@AppInterceptDialogActivity,
+                        anchorDialog = dialog,
+                        message = result.message,
+                        anchorView = etInput,
+                        icon = targetAppIcon,
                     )
-
-                    Toast.makeText(this@AppInterceptDialogActivity, "解锁成功，可以继续使用", Toast.LENGTH_SHORT).show()
-                    if (!uploaded) {
-                        Toast.makeText(
-                            this@AppInterceptDialogActivity,
-                            "确认成功，但承诺记录上传失败",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-
                     markVerified(packageName)
+                    delay(1200)
                     dialog.dismiss()
                     finish()
+                } else {
+                    AppInterceptOverlayTip.show(
+                        context = this@AppInterceptDialogActivity,
+                        anchorDialog = dialog,
+                        message = result.message,
+                        anchorView = etInput,
+                        icon = targetAppIcon,
+                    )
+                    btnConfirm.isEnabled = true
+                    btnConfirm.text = "确认"
+                    ivClose.isEnabled = true
+                    etInput.isEnabled = true
+                    etInput.requestFocus()
+                    etInput.setSelection(etInput.text.length)
                 }
-            } else {
-                Toast.makeText(
-                    this,
-                    if (config.strictVerify) "输入内容不正确，请重试" else "请输入确认内容后再继续",
-                    Toast.LENGTH_SHORT
-                ).show()
-                etInput.text.clear()
-                etInput.requestFocus()
             }
         }
 
@@ -134,6 +158,12 @@ class AppInterceptDialogActivity : AppCompatActivity() {
         }
 
         dialog.show()
+    }
+
+    private fun resolveTargetAppIcon(packageName: String): Drawable? {
+        return runCatching {
+            packageManager.getApplicationIcon(packageName)
+        }.getOrNull()
     }
 
     private fun markVerified(packageName: String) {

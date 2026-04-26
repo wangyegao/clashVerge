@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
 import androidx.core.content.ContextCompat
+import com.github.kr328.clash.common.compat.fromHtmlCompat
 import com.github.kr328.clash.common.log.Log
 import com.github.kr328.clash.common.util.intent
 import com.github.kr328.clash.common.util.ticker
@@ -14,7 +15,8 @@ import com.github.kr328.clash.design.MainDesign
 import com.github.kr328.clash.design.R
 import com.github.kr328.clash.design.ui.ToastDuration
 import com.github.kr328.clash.service.util.AppInterceptConfigLoader
-import com.github.kr328.clash.service.util.createOverlaySettingsIntent
+import com.github.kr328.clash.service.util.PermissionSettingsLandingPage
+import com.github.kr328.clash.service.util.createOverlaySettingsLaunchInfo
 import com.github.kr328.clash.service.util.createUsageAccessSettingsIntent
 import com.github.kr328.clash.service.util.queryAppInterceptPermissionState
 import com.github.kr328.clash.store.AppStore
@@ -25,6 +27,7 @@ import com.github.kr328.clash.util.withProfile
 import com.github.kr328.clash.core.bridge.*
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
@@ -40,13 +43,53 @@ class MainActivity : BaseActivity<MainDesign>() {
 
     private val appStore by lazy { AppStore(this) }
     private var appInterceptGuideRunning = false
+    private var skipNextAutomaticPermissionCheck = false
+    private var pauseAutomaticPermissionCheck = false
 
     override suspend fun main() {
         val design = MainDesign(this)
+        var refreshJob: Job? = null
+        var refreshPending = false
+        var trafficJob: Job? = null
+
+        fun requestRefresh() {
+            if (!isActive) {
+                return
+            }
+
+            if (refreshJob?.isActive == true) {
+                refreshPending = true
+                return
+            }
+
+            refreshJob = launch {
+                do {
+                    refreshPending = false
+
+                    runCatching {
+                        design.fetch()
+                    }.onFailure {
+                        Log.w("Unable to refresh main screen state", it)
+                    }
+                } while (isActive && refreshPending)
+            }
+        }
+
+        fun requestTrafficRefresh() {
+            if (!isActive || trafficJob?.isActive == true) {
+                return
+            }
+
+            trafficJob = launch {
+                runCatching {
+                    design.fetchTraffic()
+                }.onFailure {
+                    Log.w("Unable to refresh main screen traffic", it)
+                }
+            }
+        }
 
         setContentDesign(design)
-
-        design.fetch()
 
         val ticker = ticker(TimeUnit.SECONDS.toMillis(1))
 
@@ -54,10 +97,18 @@ class MainActivity : BaseActivity<MainDesign>() {
             select<Unit> {
                 events.onReceive {
                     when (it) {
-                        Event.ActivityStart,
+                        Event.ActivityStart -> {
+                            if (skipNextAutomaticPermissionCheck) {
+                                skipNextAutomaticPermissionCheck = false
+                            } else if (pauseAutomaticPermissionCheck) {
+                            } else {
+                                ensureAppInterceptPermissions(force = false)
+                            }
+                            requestRefresh()
+                        }
                         Event.ServiceRecreated,
                         Event.ClashStop, Event.ClashStart,
-                        Event.ProfileLoaded, Event.ProfileChanged -> design.fetch()
+                        Event.ProfileLoaded, Event.ProfileChanged -> requestRefresh()
                         else -> Unit
                     }
                 }
@@ -71,8 +122,11 @@ class MainActivity : BaseActivity<MainDesign>() {
                         }
                         MainDesign.Request.OpenProxy ->
                             startActivity(ProxyActivity::class.intent)
-                        MainDesign.Request.OpenProfiles ->
-                            startActivity(ProfilesActivity::class.intent)
+                        MainDesign.Request.OpenProfiles -> {
+                            if (ensureAppInterceptPermissions(force = true)) {
+                                startActivity(ProfilesActivity::class.intent)
+                            }
+                        }
                         MainDesign.Request.OpenProviders ->
                             startActivity(ProvidersActivity::class.intent)
                         MainDesign.Request.OpenLogs -> {
@@ -92,7 +146,7 @@ class MainActivity : BaseActivity<MainDesign>() {
                 }
                 if (clashRunning) {
                     ticker.onReceive {
-                        design.fetchTraffic()
+                        requestTrafficRefresh()
                     }
                 }
             }
@@ -124,7 +178,7 @@ class MainActivity : BaseActivity<MainDesign>() {
     }
 
     private suspend fun MainDesign.startClash() {
-        if (!ensureAppInterceptPermissions(force = true)) {
+        if (!ensureStartupPermissions()) {
             return
         }
 
@@ -157,6 +211,58 @@ class MainActivity : BaseActivity<MainDesign>() {
         }
     }
 
+    private suspend fun ensureStartupPermissions(): Boolean {
+        pauseAutomaticPermissionCheck = false
+
+        val permissionState = queryAppInterceptPermissionState()
+        if (permissionState.canStartIntercept) {
+            return true
+        }
+
+        if (appInterceptGuideRunning) {
+            return false
+        }
+
+        appInterceptGuideRunning = true
+
+        try {
+            if (!permissionState.usageStatsGranted) {
+                val usageGranted = requestAppInterceptPermission(
+                    title = "开启查看使用情况权限",
+                    message = "需要先开启“查看使用情况”权限才能启动。请前往 Clash Meta 授权页开启；如果看到的是应用列表，请点开 Clash Meta 后再开启。",
+                    settingsIntent = createUsageAccessSettingsIntent(),
+                    checkGranted = { queryAppInterceptPermissionState().usageStatsGranted },
+                    failureMessage = "未开启“查看使用情况”权限，暂时无法启动",
+                )
+
+                if (!usageGranted) {
+                    return false
+                }
+            }
+
+            if (!queryAppInterceptPermissionState().overlayGranted) {
+                val overlayLaunchInfo = createOverlaySettingsLaunchInfo()
+                val overlayGranted = requestAppInterceptPermission(
+                    title = "开启悬浮窗权限",
+                    message = buildStartupOverlayPermissionMessage(overlayLaunchInfo.landingPage),
+                    settingsIntent = overlayLaunchInfo.intent,
+                    checkGranted = { queryAppInterceptPermissionState().overlayGranted },
+                    failureMessage = "未开启悬浮窗权限，暂时无法启动",
+                    launchForResult = false,
+                    keepNewTaskFlag = true,
+                )
+
+                if (!overlayGranted) {
+                    return false
+                }
+            }
+
+            return true
+        } finally {
+            appInterceptGuideRunning = false
+        }
+    }
+
     private suspend fun queryAppVersionName(): String {
         return withContext(Dispatchers.IO) {
             packageManager.getPackageInfo(packageName, 0).versionName + "\n" + Bridge.nativeCoreVersion().replace("_", "-")
@@ -179,18 +285,16 @@ class MainActivity : BaseActivity<MainDesign>() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-
-        launch {
-            ensureAppInterceptPermissions(force = false)
-        }
-    }
-
     private suspend fun ensureAppInterceptPermissions(force: Boolean): Boolean {
+        if (force) {
+            pauseAutomaticPermissionCheck = false
+        }
+
         val config = AppInterceptConfigLoader.load(this)
         if (!config.enabled || !config.hasValidationRule()) {
             appStore.appInterceptPermissionGuideCompleted = true
+            appStore.appInterceptPermissionGuideShown = false
+            pauseAutomaticPermissionCheck = false
             return true
         }
 
@@ -198,14 +302,12 @@ class MainActivity : BaseActivity<MainDesign>() {
 
         if (permissionState.canStartIntercept) {
             appStore.appInterceptPermissionGuideCompleted = true
+            appStore.appInterceptPermissionGuideShown = false
+            pauseAutomaticPermissionCheck = false
             return true
         }
 
         appStore.appInterceptPermissionGuideCompleted = false
-        if (!force && appStore.appInterceptPermissionGuideShown) {
-            return false
-        }
-
         if (appInterceptGuideRunning) {
             return false
         }
@@ -229,10 +331,11 @@ class MainActivity : BaseActivity<MainDesign>() {
             }
 
             if (!queryAppInterceptPermissionState().overlayGranted) {
+                val overlayLaunchInfo = createOverlaySettingsLaunchInfo()
                 val overlayGranted = requestAppInterceptPermission(
-                    title = "继续完成权限设置",
-                    message = "还需要开启悬浮窗权限，应用拦截功能才能在检测到目标应用时立即弹出验证框。将跳转到系统的悬浮窗设置页；如果看到的是应用列表，请点开 Clash Meta 后再开启。",
-                    settingsIntent = createOverlaySettingsIntent(),
+                    title = "开启悬浮窗权限",
+                    message = buildOverlayPermissionMessage(overlayLaunchInfo.landingPage),
+                    settingsIntent = overlayLaunchInfo.intent,
                     checkGranted = { queryAppInterceptPermissionState().overlayGranted },
                     failureMessage = "未开启悬浮窗权限，应用拦截功能暂未启用",
                     launchForResult = false,
@@ -253,18 +356,19 @@ class MainActivity : BaseActivity<MainDesign>() {
 
     private suspend fun requestAppInterceptPermission(
         title: String,
-        message: String,
+        message: CharSequence,
         settingsIntent: android.content.Intent,
         checkGranted: () -> Boolean,
         failureMessage: String,
         launchForResult: Boolean = true,
         keepNewTaskFlag: Boolean = false,
     ): Boolean {
-        if (awaitPermissionGrant(checkGranted)) {
+        if (checkGranted()) {
             return true
         }
 
         if (!showAppInterceptPermissionDialog(title, message)) {
+            pauseAutomaticPermissionCheck = true
             return false
         }
 
@@ -275,6 +379,7 @@ class MainActivity : BaseActivity<MainDesign>() {
         }
 
         try {
+            skipNextAutomaticPermissionCheck = true
             if (launchForResult) {
                 startActivityForResult(ActivityResultContracts.StartActivityForResult(), launchIntent)
             } else {
@@ -284,17 +389,54 @@ class MainActivity : BaseActivity<MainDesign>() {
                 waitForPermissionSettingsReturn(checkGranted)
             }
         } catch (e: Exception) {
+            skipNextAutomaticPermissionCheck = false
             Log.w("Unable to open permission settings for $title", e)
             Toast.makeText(this, "无法打开系统权限页，请手动到系统设置中开启相关权限", Toast.LENGTH_LONG).show()
             return false
         }
 
         if (awaitPermissionGrant(checkGranted)) {
+            pauseAutomaticPermissionCheck = false
             return true
         }
 
+        pauseAutomaticPermissionCheck = true
         Toast.makeText(this, failureMessage, Toast.LENGTH_LONG).show()
         return false
+    }
+
+    private fun buildOverlayPermissionMessage(
+        landingPage: PermissionSettingsLandingPage,
+    ): CharSequence {
+        return when (landingPage) {
+            PermissionSettingsLandingPage.AppSpecific -> {
+                fromHtmlCompat(
+                    "需要开启“悬浮窗”权限才能正常使用，请前往 <b>Clash Meta 权限页</b>，开启“显示在其他应用的上层”。"
+                )
+            }
+            PermissionSettingsLandingPage.AppList -> {
+                fromHtmlCompat(
+                    "需要开启“悬浮窗”权限才能正常使用，请前往 <b>应用列表 &gt; Clash Meta</b>，点击开启“显示在其他应用的上层”。"
+                )
+            }
+        }
+    }
+
+    private fun buildStartupOverlayPermissionMessage(
+        landingPage: PermissionSettingsLandingPage,
+    ): CharSequence {
+        return when (landingPage) {
+            PermissionSettingsLandingPage.AppSpecific -> {
+                fromHtmlCompat(
+                    "需要先开启“悬浮窗”权限才能启动，请前往 <b>Clash Meta 权限页</b>，开启“显示在其他应用的上层”。"
+                )
+            }
+            PermissionSettingsLandingPage.AppList -> {
+                fromHtmlCompat(
+                    "需要先开启“悬浮窗”权限才能启动，请前往 <b>应用列表 &gt; Clash Meta</b>，点击开启“显示在其他应用的上层”。"
+                )
+            }
+        }
     }
 
     private suspend fun waitForPermissionSettingsReturn(
@@ -319,8 +461,8 @@ class MainActivity : BaseActivity<MainDesign>() {
 
     private suspend fun awaitPermissionGrant(
         checkGranted: () -> Boolean,
-        maxAttempts: Int = 8,
-        delayMillis: Long = 200L,
+        maxAttempts: Int = 20,
+        delayMillis: Long = 250L,
     ): Boolean {
         repeat(maxAttempts) { attempt ->
             if (checkGranted()) {
@@ -337,7 +479,7 @@ class MainActivity : BaseActivity<MainDesign>() {
 
     private suspend fun showAppInterceptPermissionDialog(
         title: String,
-        message: String,
+        message: CharSequence,
     ): Boolean = withContext(Dispatchers.Main) {
         suspendCoroutine { continuation ->
             MaterialAlertDialogBuilder(this@MainActivity)

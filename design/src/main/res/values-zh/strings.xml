@@ -58,6 +58,8 @@
     <string name="profile">配置</string>
     <string name="profile_name">配置名称</string>
     <string name="profiles">配置</string>
+    <string name="profiles_empty_title">暂无配置</string>
+    <string name="profiles_empty_tips">点击下方按钮导入配置</string>
     <string name="properties">参数</string>
     <string name="proxy">代理</string>
     <string name="recently">近期</string>
@@ -214,6 +216,7 @@
     <string name="active_unsaved_tips">配置文件需要在激活之前保存</string>
     <string name="mode_switch_tips">仅在本次会话中有效</string>
     <string name="import_">导入</string>
+    <string name="import_profile">导入配置</string>
     <string name="sources">源代码</string>
     <string name="clash_meta_core">Clash Meta 核心</string>
     <string name="name_server_policy">Name Server 策略</string>

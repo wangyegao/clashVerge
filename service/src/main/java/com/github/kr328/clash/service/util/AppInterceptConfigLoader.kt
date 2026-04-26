@@ -129,7 +129,7 @@ object AppInterceptConfigLoader {
             verifyHint = verifyHint,
             inputHint = inputHint,
             strictVerify = strictVerify,
-            enabled = interceptPackages.isNotEmpty() && if (strictVerify) verifyPassword.isNotEmpty() else true,
+            enabled = interceptPackages.isNotEmpty(),
         )
     }
 

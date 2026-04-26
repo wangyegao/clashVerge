@@ -46,11 +46,13 @@ class ProfilesDesign(context: Context) : Design<ProfilesDesign.Request>(context)
             patchDataSet(this::profiles, profiles, id = { it.uuid })
         }
 
+        val hasProfiles = profiles.isNotEmpty()
         val updatable = withContext(Dispatchers.Default) {
             profiles.any { it.imported && it.type != Profile.Type.File }
         }
 
         withContext(Dispatchers.Main) {
+            binding.emptyView.visibility = if (hasProfiles) View.GONE else View.VISIBLE
             binding.updateView.visibility = if (updatable) View.VISIBLE else View.GONE
         }
     }

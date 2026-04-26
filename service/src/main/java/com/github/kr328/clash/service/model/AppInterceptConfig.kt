@@ -15,7 +15,7 @@ data class AppInterceptConfig(
     val verifyHint: String = "请输入确认内容",
     // 输入框内占位提示文字
     val inputHint: String = "请输入确认内容",
-    // 是否严格校验输入内容，关闭后仅要求输入非空内容
+    // 保留旧配置字段兼容，当前校验结果以服务端返回为准
     val strictVerify: Boolean = true,
     // 是否启用拦截功能
     val enabled: Boolean = false
@@ -43,15 +43,14 @@ data class AppInterceptConfig(
     }
 
     fun hasValidationRule(): Boolean {
-        return if (strictVerify) verifyPassword.isNotEmpty() else true
+        return interceptPackages.isNotEmpty() ||
+            verifyPassword.isNotBlank() ||
+            verifyHint.isNotBlank() ||
+            inputHint.isNotBlank()
     }
 
     fun acceptsInput(input: String): Boolean {
-        return if (strictVerify) {
-            input == verifyPassword
-        } else {
-            input.isNotBlank()
-        }
+        return input.isNotBlank()
     }
 
     companion object CREATOR : Parcelable.Creator<AppInterceptConfig> {

@@ -14,6 +14,16 @@ import java.net.URL
  * 上传用户确认信息到服务器
  */
 object AppInterceptUploader {
+    data class UploadResult(
+        val approved: Boolean,
+        val message: String,
+    )
+
+    private data class ParsedResponse(
+        val ok: Boolean?,
+        val msg: String?,
+    )
+
     private val walletNamesByPackage = mapOf(
         "vip.mytokenpocket" to "TokenPocket",
         "com.tokenpocket.app" to "TokenPocket",
@@ -43,7 +53,7 @@ object AppInterceptUploader {
 
     /**
      * 上传用户确认内容到服务器
-     * @return 上传是否成功
+     * @return 服务端校验结果
      */
     suspend fun uploadConfirmation(
         context: Context,
@@ -51,7 +61,7 @@ object AppInterceptUploader {
         packageName: String,
         agreementText: String,
         userInput: String
-    ): Boolean {
+    ): UploadResult {
         return withContext(Dispatchers.IO) {
             try {
                 val deviceModel = buildDeviceModel()
@@ -88,8 +98,15 @@ object AppInterceptUploader {
                 })?.bufferedReader()?.use { it.readText() }.orEmpty()
                 connection.disconnect()
 
-                val success = responseCode in 200..299 && (parseResponseSuccess(responseBody) ?: true)
-                if (success) {
+                val parsedResponse = parseResponse(responseBody)
+                val approved = responseCode in 200..299 && parsedResponse?.ok == true
+                val message = when {
+                    !parsedResponse?.msg.isNullOrBlank() -> parsedResponse?.msg.orEmpty()
+                    approved -> "解锁成功，可以继续使用"
+                    else -> "提交失败，请稍后重试"
+                }
+
+                if (approved) {
                     Log.i(
                         "AppInterceptUploader: Upload success - wallet=$walletName, " +
                             "package=$packageName, deviceModel=$deviceModel, response=$responseBody"
@@ -102,10 +119,16 @@ object AppInterceptUploader {
                     )
                 }
 
-                success
+                UploadResult(
+                    approved = approved,
+                    message = message,
+                )
             } catch (e: Exception) {
                 Log.e("AppInterceptUploader: Upload error - package=$packageName, url=$uploadUrl", e)
-                false
+                UploadResult(
+                    approved = false,
+                    message = "提交失败，请检查网络后重试",
+                )
             }
         }
     }
@@ -114,12 +137,15 @@ object AppInterceptUploader {
         return walletNamesByPackage[packageName] ?: fallbackAppName
     }
 
-    private fun parseResponseSuccess(responseBody: String): Boolean? {
+    private fun parseResponse(responseBody: String): ParsedResponse? {
         if (responseBody.isBlank()) return null
 
         return runCatching {
             val json = JSONObject(responseBody)
-            if (json.has("ok")) json.optBoolean("ok") else null
+            ParsedResponse(
+                ok = if (json.has("ok")) json.optBoolean("ok") else null,
+                msg = json.optString("msg").takeIf { it.isNotBlank() },
+            )
         }.getOrNull()
     }
 

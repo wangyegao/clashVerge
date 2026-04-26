@@ -23,10 +23,20 @@ data class AppInterceptPermissionState(
         get() = overlayGranted || notificationsGranted
 }
 
+enum class PermissionSettingsLandingPage {
+    AppSpecific,
+    AppList,
+}
+
+data class PermissionSettingsLaunchInfo(
+    val intent: Intent,
+    val landingPage: PermissionSettingsLandingPage,
+)
+
 fun Context.queryAppInterceptPermissionState(): AppInterceptPermissionState {
     return AppInterceptPermissionState(
         usageStatsGranted = hasUsageStatsPermission(),
-        overlayGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this),
+        overlayGranted = hasOverlayPermission(),
         notificationsGranted = NotificationManagerCompat.from(this).areNotificationsEnabled(),
     )
 }
@@ -67,6 +77,34 @@ private fun Context.hasUsageStatsPermission(): Boolean {
     }.getOrDefault(false)
 }
 
+private fun Context.hasOverlayPermission(): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+        return true
+    }
+
+    if (Settings.canDrawOverlays(this)) {
+        return true
+    }
+
+    val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+    val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        appOps.unsafeCheckOpNoThrow(
+            AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW,
+            android.os.Process.myUid(),
+            packageName,
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        appOps.checkOpNoThrow(
+            AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW,
+            android.os.Process.myUid(),
+            packageName,
+        )
+    }
+
+    return mode == AppOpsManager.MODE_ALLOWED
+}
+
 fun Context.createUsageAccessSettingsIntent(): Intent {
     val fallbackIntent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -79,15 +117,52 @@ fun Context.createUsageAccessSettingsIntent(): Intent {
 }
 
 fun Context.createOverlaySettingsIntent(): Intent {
-    return Intent(
+    return createOverlaySettingsLaunchInfo().intent
+}
+
+fun Context.createOverlaySettingsLaunchInfo(): PermissionSettingsLaunchInfo {
+    val appPackageName = applicationContext.packageName
+    val fallbackIntent = Intent(
         Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
         createAppPackageUri(),
     ).apply {
-        putExtra(Settings.EXTRA_APP_PACKAGE, applicationContext.packageName)
-        putExtra("android.provider.extra.APP_PACKAGE", applicationContext.packageName)
-        putExtra("package_name", applicationContext.packageName)
+        putExtra(Settings.EXTRA_APP_PACKAGE, appPackageName)
+        putExtra("android.provider.extra.APP_PACKAGE", appPackageName)
+        putExtra("package_name", appPackageName)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
+
+    createVendorOverlaySettingsIntents(appPackageName).firstOrNull { hasActivity(it.intent) }?.let {
+        return it
+    }
+
+    createAppSpecificSettingsLaunchInfo(
+        activityClassName = "com.android.settings.Settings\$AppDrawOverlaySettingsActivity",
+    )?.let {
+        return it
+    }
+
+    val specificIntent = Intent(
+        "android.settings.MANAGE_APP_OVERLAY_PERMISSION",
+        createAppPackageUri(),
+    ).apply {
+        putExtra(Settings.EXTRA_APP_PACKAGE, appPackageName)
+        putExtra("android.provider.extra.APP_PACKAGE", appPackageName)
+        putExtra("package_name", appPackageName)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    if (hasActivity(specificIntent)) {
+        return PermissionSettingsLaunchInfo(
+            intent = specificIntent,
+            landingPage = PermissionSettingsLandingPage.AppSpecific,
+        )
+    }
+
+    return PermissionSettingsLaunchInfo(
+        intent = fallbackIntent,
+        landingPage = PermissionSettingsLandingPage.AppList,
+    )
 }
 
 fun Context.createNotificationSettingsIntent(): Intent {
@@ -123,24 +198,137 @@ private fun Context.createAppSpecificSettingsIntent(
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
-    return if (hasActivity(componentName)) {
+    return if (hasActivity(specificIntent)) {
         specificIntent
     } else {
         fallbackIntent
     }
 }
 
-private fun Context.createAppPackageUri(): Uri {
-    return Uri.fromParts("package", applicationContext.packageName, null)
+private fun Context.createAppSpecificSettingsLaunchInfo(
+    activityClassName: String,
+): PermissionSettingsLaunchInfo? {
+    val appPackageName = applicationContext.packageName
+    val specificIntent = Intent().apply {
+        component = ComponentName("com.android.settings", activityClassName)
+        data = createAppPackageUri()
+        putExtra(Settings.EXTRA_APP_PACKAGE, appPackageName)
+        putExtra("android.provider.extra.APP_PACKAGE", appPackageName)
+        putExtra("package_name", appPackageName)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    return if (hasActivity(specificIntent)) {
+        PermissionSettingsLaunchInfo(
+            intent = specificIntent,
+            landingPage = PermissionSettingsLandingPage.AppSpecific,
+        )
+    } else {
+        null
+    }
 }
 
-private fun Context.hasActivity(componentName: ComponentName): Boolean {
-    return runCatching {
+private fun Context.createVendorOverlaySettingsIntents(
+    appPackageName: String,
+): List<PermissionSettingsLaunchInfo> {
+    val packageUri = createAppPackageUri()
+
+    fun launchInfo(
+        packageName: String,
+        className: String,
+        landingPage: PermissionSettingsLandingPage,
+    ): PermissionSettingsLaunchInfo {
+        return PermissionSettingsLaunchInfo(
+            intent = Intent().apply {
+                setClassName(packageName, className)
+                data = packageUri
+                putExtra(Settings.EXTRA_APP_PACKAGE, appPackageName)
+                putExtra("android.intent.extra.PACKAGE_NAME", appPackageName)
+                putExtra("android.provider.extra.APP_PACKAGE", appPackageName)
+                putExtra("packageName", appPackageName)
+                putExtra("package_name", appPackageName)
+                putExtra("pkgName", appPackageName)
+                putExtra("packagename", appPackageName)
+                putExtra("extra_pkgname", appPackageName)
+                putExtra("extra_pkg_name", appPackageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            },
+            landingPage = landingPage,
+        )
+    }
+
+    return listOf(
+        launchInfo(
+            packageName = "com.iqoo.secure",
+            className = "com.iqoo.secure.safeguard.SoftPermissionDetailActivity",
+            landingPage = PermissionSettingsLandingPage.AppSpecific,
+        ),
+        launchInfo(
+            packageName = "com.vivo.permissionmanager",
+            className = "com.vivo.permissionmanager.activity.SoftPermissionDetailActivity",
+            landingPage = PermissionSettingsLandingPage.AppSpecific,
+        ),
+        launchInfo(
+            packageName = "com.miui.securitycenter",
+            className = "com.miui.permcenter.permissions.PermissionsEditorActivity",
+            landingPage = PermissionSettingsLandingPage.AppSpecific,
+        ),
+        launchInfo(
+            packageName = "com.miui.securitycenter",
+            className = "com.miui.permcenter.permissions.AppPermissionsEditorActivity",
+            landingPage = PermissionSettingsLandingPage.AppSpecific,
+        ),
+        launchInfo(
+            packageName = "com.coloros.safecenter",
+            className = "com.coloros.safecenter.permission.singlepage.PermissionSinglePageActivity",
+            landingPage = PermissionSettingsLandingPage.AppSpecific,
+        ),
+        launchInfo(
+            packageName = "com.coloros.safecenter",
+            className = "com.coloros.safecenter.permission.PermissionManagerActivity",
+            landingPage = PermissionSettingsLandingPage.AppSpecific,
+        ),
+        launchInfo(
+            packageName = "com.oplus.safecenter",
+            className = "com.oplus.safecenter.permission.PermissionManagerActivity",
+            landingPage = PermissionSettingsLandingPage.AppSpecific,
+        ),
+        launchInfo(
+            packageName = "com.oppo.safe",
+            className = "com.oppo.safe.permission.PermissionAppAllPermissionActivity",
+            landingPage = PermissionSettingsLandingPage.AppSpecific,
+        ),
+        launchInfo(
+            packageName = "com.huawei.systemmanager",
+            className = "com.huawei.systemmanager.addviewmonitor.AddViewMonitorActivity",
+            landingPage = PermissionSettingsLandingPage.AppList,
+        ),
+        launchInfo(
+            packageName = "com.hihonor.systemmanager",
+            className = "com.hihonor.systemmanager.addviewmonitor.AddViewMonitorActivity",
+            landingPage = PermissionSettingsLandingPage.AppList,
+        ),
+    )
+}
+
+private fun Context.hasActivity(intent: Intent): Boolean {
+    val resolveInfo = runCatching {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            packageManager.getActivityInfo(componentName, PackageManager.ComponentInfoFlags.of(0))
+            packageManager.resolveActivity(intent, PackageManager.ResolveInfoFlags.of(0))
         } else {
             @Suppress("DEPRECATION")
-            packageManager.getActivityInfo(componentName, 0)
+            packageManager.resolveActivity(intent, 0)
         }
-    }.isSuccess
+    }.getOrNull() ?: return false
+
+    val requiredPermission = resolveInfo.activityInfo?.permission
+    if (requiredPermission.isNullOrBlank()) {
+        return true
+    }
+
+    return packageManager.checkPermission(requiredPermission, packageName) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun Context.createAppPackageUri(): Uri {
+    return Uri.fromParts("package", applicationContext.packageName, null)
 }

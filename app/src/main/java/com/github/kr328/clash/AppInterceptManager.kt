@@ -30,7 +30,6 @@ class AppInterceptManager(private val context: Context) {
      */
     fun shouldIntercept(packageName: String): Boolean {
         if (!config.enabled) return false
-        if (!config.hasValidationRule()) return false
         return packageName in config.interceptPackages
     }
 
@@ -141,7 +140,7 @@ class AppInterceptManager(private val context: Context) {
             verifyHint = verifyHint,
             inputHint = inputHint,
             strictVerify = strictVerify,
-            enabled = enabled && interceptPackages.isNotEmpty() && if (strictVerify) verifyPassword.isNotEmpty() else true
+            enabled = enabled && interceptPackages.isNotEmpty()
         )
     }
 

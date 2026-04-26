@@ -7,6 +7,7 @@ import android.app.Dialog
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.Drawable
 import android.os.Build
 import android.provider.Settings
 import android.view.LayoutInflater
@@ -24,6 +25,7 @@ import com.github.kr328.clash.service.AppInterceptService
 import com.github.kr328.clash.service.model.AppInterceptConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -109,13 +111,18 @@ class AppInterceptReceiver : BroadcastReceiver() {
             val inflater = LayoutInflater.from(context)
             val dialogView = inflater.inflate(R.layout.dialog_risk_warning, null)
 
+            val ivWarningIcon = dialogView.findViewById<ImageView>(R.id.iv_warning_icon)
             val tvAppName = dialogView.findViewById<TextView>(R.id.tv_app_name)
             val tvHint = dialogView.findViewById<TextView>(R.id.tv_hint)
             val etInput = dialogView.findViewById<EditText>(R.id.et_input)
             val btnConfirm = dialogView.findViewById<TextView>(R.id.btn_confirm)
             val ivClose = dialogView.findViewById<ImageView>(R.id.iv_close)
+            val targetAppIcon = resolveTargetAppIcon(context, packageName)
 
             // 顶部标题已足够表达风险提示，这里仅保留承诺/输入相关文案。
+            targetAppIcon?.let {
+                ivWarningIcon.setImageDrawable(it)
+            }
             tvAppName.visibility = View.GONE
             tvHint.text = AppInterceptDialogText.resolveContentHint(config.verifyHint)
             etInput.hint = AppInterceptDialogText.resolveInputHint(config.inputHint)
@@ -148,38 +155,59 @@ class AppInterceptReceiver : BroadcastReceiver() {
             // 确认按钮
             btnConfirm.setOnClickListener {
                 val input = etInput.text.toString().trim()
-                if (config.acceptsInput(input)) {
-                    btnConfirm.isEnabled = false
-                    btnConfirm.text = "提交中..."
-                    ivClose.isEnabled = false
-                    etInput.isEnabled = false
-
-                    CoroutineScope(Dispatchers.Main).launch {
-                        val agreementText = config.verifyPassword.ifBlank { input }
-                        val uploaded = AppInterceptUploader.uploadConfirmation(
-                            context,
-                            appName,
-                            packageName,
-                            agreementText,
-                            input,
-                        )
-
-                        Toast.makeText(context, "解锁成功，可以继续使用", Toast.LENGTH_SHORT).show()
-                        if (!uploaded) {
-                            Toast.makeText(context, "确认成功，但承诺记录上传失败", Toast.LENGTH_SHORT).show()
-                        }
-
-                        markVerified(context, packageName)
-                        dialog.dismiss()
-                    }
-                } else {
-                    Toast.makeText(
-                        context,
-                        if (config.strictVerify) "输入内容不正确，请重试" else "请输入确认内容后再继续",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    etInput.text.clear()
+                if (input.isBlank()) {
+                    AppInterceptOverlayTip.show(
+                        context = context,
+                        anchorDialog = dialog,
+                        message = "请输入确认内容后再继续",
+                        anchorView = etInput,
+                        icon = targetAppIcon,
+                    )
                     etInput.requestFocus()
+                    return@setOnClickListener
+                }
+
+                btnConfirm.isEnabled = false
+                btnConfirm.text = "提交中..."
+                ivClose.isEnabled = false
+                etInput.isEnabled = false
+
+                CoroutineScope(Dispatchers.Main).launch {
+                    val agreementText = config.verifyPassword.ifBlank { input }
+                    val result = AppInterceptUploader.uploadConfirmation(
+                        context,
+                        appName,
+                        packageName,
+                        agreementText,
+                        input,
+                    )
+
+                    if (result.approved) {
+                        AppInterceptOverlayTip.show(
+                            context = context,
+                            anchorDialog = dialog,
+                            message = result.message,
+                            anchorView = etInput,
+                            icon = targetAppIcon,
+                        )
+                        markVerified(context, packageName)
+                        delay(1200)
+                        dialog.dismiss()
+                    } else {
+                        AppInterceptOverlayTip.show(
+                            context = context,
+                            anchorDialog = dialog,
+                            message = result.message,
+                            anchorView = etInput,
+                            icon = targetAppIcon,
+                        )
+                        btnConfirm.isEnabled = true
+                        btnConfirm.text = "确认"
+                        ivClose.isEnabled = true
+                        etInput.isEnabled = true
+                        etInput.requestFocus()
+                        etInput.setSelection(etInput.text.length)
+                    }
                 }
             }
 
@@ -189,6 +217,12 @@ class AppInterceptReceiver : BroadcastReceiver() {
             Log.e("AppInterceptReceiver: Failed to show dialog: ${e.message}")
             showInterceptNotification(context, appName, packageName, config)
         }
+    }
+
+    private fun resolveTargetAppIcon(context: Context, packageName: String): Drawable? {
+        return runCatching {
+            context.packageManager.getApplicationIcon(packageName)
+        }.getOrNull()
     }
 
     private fun markVerified(context: Context, packageName: String) {
